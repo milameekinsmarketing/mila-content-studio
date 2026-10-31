@@ -133,6 +133,55 @@ body::before{
 .prog-borrador{display:flex;align-items:center;gap:8px;font-size:12px;color:#43566C;margin-top:16px;cursor:pointer}
 .prog-borrador input{accent-color:var(--gold-deep)}
 .prog-modal .row{margin-top:20px}
+.prog-campo select{font-family:inherit;font-size:13.5px;color:var(--navy);background:var(--cream);
+  border:1px solid var(--line);border-radius:12px;padding:10px 12px;height:44px}
+.prog-quitar{color:var(--danger)}
+
+/* Calendario de publicación */
+.cal-nav{align-items:center}
+.cal-mes{font-family:var(--serif);font-size:20px;color:var(--navy);min-width:150px;text-align:center}
+.cal-wrap{display:grid;grid-template-columns:240px minmax(0,1fr);gap:18px;align-items:start}
+.cal-pend{background:#fff;border:1px solid var(--line);border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:7px;
+  position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto}
+.cal-pend-head{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.cal-pend-head .count{background:var(--gold-pale);color:var(--gold-deep);border-radius:999px;padding:1px 8px;letter-spacing:0;font-size:11px}
+.cal-vacio{font-size:12px;color:var(--muted);line-height:1.5;margin:0}
+.cal-mesgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.cal-sem{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);text-align:center;padding:2px 0 4px}
+.cal-dia{background:#fff;border:1px solid var(--line);border-radius:12px;min-height:118px;padding:6px;display:flex;flex-direction:column;gap:5px;
+  transition:background .15s,border-color .15s}
+.cal-dia.fuera{background:#FBFAF7;opacity:.7}
+.cal-dia.pasado{background:#F6F5F2}
+.cal-dia.pasado .cal-num{color:#B8BFC8}
+.cal-dia.hoy{border-color:var(--gold-soft);box-shadow:inset 0 0 0 1px var(--gold-soft)}
+.cal-dia.cal-over{background:var(--gold-pale);border-color:var(--gold-deep)}
+.cal-num{font-size:12px;font-weight:600;color:var(--navy)}
+.cal-dia.hoy .cal-num{color:var(--gold-deep)}
+.cal-chip{display:flex;align-items:center;gap:6px;background:var(--cream);border:1px solid var(--line);border-left:3px solid var(--gold-deep);
+  border-radius:8px;padding:4px;cursor:grab;min-width:0;user-select:none}
+.cal-chip:hover{border-color:var(--gold-soft)}
+.cal-chip.dragging{opacity:.4}
+.cal-chip.cal-reels{border-left-color:#7C5CBF}
+.cal-chip.cal-stories{border-left-color:#D9822B}
+.cal-chip.cal-youtube{border-left-color:#C8463D}
+.cal-chip.is-draft{border-style:dashed;border-left-style:solid;opacity:.85}
+.cal-chip.is-pub{background:#EAF6EF}
+.cal-thumb{width:28px;height:28px;border-radius:5px;overflow:hidden;flex:none;background:#fff;display:grid;place-items:center}
+.cal-thumb img{width:100%;height:100%;object-fit:cover}
+.cal-thumb svg{width:14px;height:14px;color:var(--muted)}
+.cal-txt{display:flex;flex-direction:column;min-width:0;line-height:1.25}
+.cal-meta{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-meta b{color:var(--navy)}
+.cal-nombre{font-size:11px;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:900px){
+  .cal-wrap{grid-template-columns:1fr}
+  .cal-pend{position:static;max-height:none}
+  .cal-mesgrid{gap:3px}
+  .cal-dia{min-height:70px;padding:3px;border-radius:8px}
+  .cal-dia .cal-chip{padding:2px;gap:0}
+  .cal-dia .cal-txt{display:none}
+  .cal-dia .cal-thumb{width:100%;height:24px}
+}
 
 /* Módulo Fin de mes: mismo lenguaje visual que el resto, con un acento dorado */
 .urgente-strip{color:var(--gold-deep);border-color:var(--gold-soft)}
@@ -1439,6 +1488,7 @@ const NAV = [
   {id:"stories",   label:"Historias",     icon:"i-story",  coll:"stories"},
   {id:"urgente",   label:"Fin de mes",    icon:"i-cal",    coll:"urgente"},
   {id:"feed",      label:"Feed Preview",  icon:"i-feed"},
+  {id:"calendario",label:"Calendario",    icon:"i-clock"},
 ];
 
 const STATUS = {
@@ -6466,6 +6516,7 @@ async function llamarMetricool(cuerpo){
 async function enviarAMetricool(coll, id, {fechaSolo, horaSolo, redes, borrador=false, auto=false}){
   const it = find(coll, id); if(!it) throw new Error("la pieza ya no existe");
   const video = PROG_VIDEO[coll] ? progVideoUrl(PROG_VIDEO[coll](it)) : "";
+  const anterior = it.programado && it.programado.id;
   const res = await llamarMetricool({
     blogId: brandById(activeBrandId).metricoolBlogId,
     texto: (it.copy || "").trim(),
@@ -6481,6 +6532,13 @@ async function enviarAMetricool(coll, id, {fechaSolo, horaSolo, redes, borrador=
   // se vuelve a buscar: mientras Metricool respondía, la vista pudo recargarse
   const ahora = find(coll, id);
   if(ahora) ahora.programado = { fecha:`${fechaSolo}T${horaSolo}`, fechaSolo, horaSolo, redes, id:res.id || null, borrador, auto };
+  // al reprogramar se crea la nueva y después se quita la vieja: si algo falla a
+  // mitad, queda una de más en Metricool, nunca ninguna
+  if(anterior && anterior !== res.id){
+    try{ await llamarMetricool({accion:"borrar", blogId: brandById(activeBrandId).metricoolBlogId, id: anterior}); }
+    catch(e){ console.warn("No se pudo quitar la versión anterior", e);
+      toast(`Reprogramada, pero la versión anterior sigue en Metricool: bórrala a mano (${e.message}).`, "alert", true); }
+  }
   logActivity("cal", `<b>${auto ? "Programado solo" : "Programado"}:</b> ${esc(it.title || it.idea || "Pieza")} para el ${esc(fechaSolo)} a las ${esc(horaSolo)} en ${esc(redes.join(", "))}.`);
   touch(); render();
   return res;
@@ -6569,7 +6627,46 @@ function progFechaPorDefecto(){
   return { fecha: `${d.getFullYear()}-${dosDig(d.getMonth()+1)}-${dosDig(d.getDate())}`, hora: "09:00" };
 }
 
-function openScheduleModal(coll, id){
+/* Horas que ya tiene ocupadas un día en el mismo grupo (feed, reels, historias), sin
+   contar la pieza que se está programando. */
+function progOcupadas(coll, fechaSolo, sinId){
+  const cfg = PROG_AUTO[coll];
+  const colls = cfg ? Object.keys(PROG_AUTO).filter(c => PROG_AUTO[c].grupo === cfg.grupo) : [coll];
+  const horas = new Set();
+  colls.forEach(c => (S[c] || []).forEach(x => {
+    const p = x.programado;
+    if(x.id !== sinId && p && p.fechaSolo === fechaSolo) horas.add(p.horaSolo);
+  }));
+  return horas;
+}
+
+/* La lista desplegable de horas: cada media hora de 6:00 a 23:30. Se marcan las que
+   le tocan a ese formato por costumbre y las que ese día ya están tomadas. */
+function progHorasOptions(coll, fechaSolo, elegida, sinId){
+  const recomendadas = new Set((PROG_AUTO[coll] || {}).horas || []);
+  const ocupadas = progOcupadas(coll, fechaSolo, sinId);
+  const lista = [];
+  for(let h = 6; h < 24; h++) for(const m of ["00","30"]) lista.push(`${String(h).padStart(2,"0")}:${m}`);
+  if(elegida && !lista.includes(elegida)) lista.push(elegida);
+  lista.sort();
+  const am = t => { const [h, m] = t.split(":").map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2,"0")} ${h < 12 ? "a. m." : "p. m."}`; };
+  return lista.map(t => `<option value="${t}" ${t === elegida ? "selected" : ""}>${am(t)}${
+    ocupadas.has(t) ? " · ocupada" : recomendadas.has(t) ? " · recomendada" : ""}</option>`).join("");
+}
+
+/* Al aprobar ya no se programa a ciegas en el siguiente hueco: se abre la ventana de
+   programar con ese hueco propuesto, y quien aprueba elige el día y la hora. */
+function proponerProgramacion(coll, id){
+  const it = find(coll, id);
+  if(!it || !PROG_AUTO[coll] || !metricoolEnabled() || (it.programado && it.programado.fecha)) return;
+  const marca = brandById(activeBrandId);
+  if(!marca.metricoolBlogId){ toast(`Aprobado, pero no se programó: falta el blogId de Metricool de ${marca.label}.`, "alert", true); return; }
+  const falta = progFalta(coll, it);
+  if(falta){ toast(`Aprobado. Para programarlo falta ${falta}.`, "alert", true); return; }
+  openScheduleModal(coll, id, {desdeAprobacion: true});
+}
+
+function openScheduleModal(coll, id, opts = {}){
   if(!guard()) return;
   const it = find(coll, id); if(!it) return;
 
@@ -6583,19 +6680,24 @@ function openScheduleModal(coll, id){
     return;
   }
 
+  const cfg = PROG_AUTO[coll];
   const imagenes = (PROG_MEDIA[coll](it) || []).filter(Boolean);
   const conVideo = !!(PROG_VIDEO[coll] && progVideoUrl(PROG_VIDEO[coll](it)));
   const copy = (it.copy || "").trim();
-  const previo = it.programado || {};
+  const previo = (it.programado && it.programado.fecha) ? it.programado : {};
   const def = progFechaPorDefecto();
-  const marcadas = new Set(previo.redes || ["instagram"]);
+  const hueco = !previo.fecha && cfg ? siguienteHueco(coll) : null;
+  const fecha0 = opts.fecha || previo.fechaSolo || (hueco && hueco.fechaSolo) || def.fecha;
+  const hora0 = previo.horaSolo || (hueco && hueco.horaSolo) || (cfg && cfg.horas[0]) || def.hora;
+  const marcadas = new Set(previo.redes || (cfg && cfg.redes) || ["instagram"]);
+  const titulo = previo.fecha ? "Reprogramar publicación" : opts.desdeAprobacion ? "Aprobado: ¿cuándo se publica?" : "Programar publicación";
 
   const host = $("#modalHost");
   host.innerHTML = `
     <div class="modal-bg" data-close>
       <div class="modal prog-modal" role="dialog" aria-modal="true">
-        <h3>Programar publicación</h3>
-        <p class="prog-titulo">${esc(it.title || "Sin título")}</p>
+        <h3>${titulo}</h3>
+        <p class="prog-titulo">${esc(it.title || it.idea || "Sin título")}</p>
 
         <div class="prog-aviso ${conVideo || imagenes.length ? "" : "warn"}">
           ${conVideo
@@ -6606,15 +6708,16 @@ function openScheduleModal(coll, id){
             ? `<svg><use href="#i-img"/></svg>${imagenes.length} imagen(es) · ${copy.length} caracteres de copy`
             : `<svg><use href="#i-alert"/></svg>Esta pieza todavía no tiene imagen. Puedes programarla igual, pero saldrá sin media.`}
         </div>
-        ${!copy ? `<div class="prog-aviso warn"><svg><use href="#i-alert"/></svg>No hay copy escrito: la publicación saldría sin texto.</div>` : ""}
+        ${!copy && coll !== "stories" ? `<div class="prog-aviso warn"><svg><use href="#i-alert"/></svg>No hay copy escrito: la publicación saldría sin texto.</div>` : ""}
+        ${previo.fecha ? `<div class="prog-aviso"><svg><use href="#i-clock"/></svg>Ahora está programada para el ${esc(previo.fechaSolo)} a las ${esc(previo.horaSolo)}. Al cambiarla, se reemplaza en Metricool.</div>` : ""}
 
         <div class="prog-fila">
-          <label class="prog-campo"><span>Fecha</span>
-            <input type="date" id="progFecha" value="${esc(previo.fechaSolo || def.fecha)}"></label>
+          <label class="prog-campo"><span>Día</span>
+            <input type="date" id="progFecha" value="${esc(fecha0)}" min="${esc(ymd(new Date()))}"></label>
           <label class="prog-campo"><span>Hora</span>
-            <input type="time" id="progHora" value="${esc(previo.horaSolo || def.hora)}"></label>
+            <select id="progHora">${progHorasOptions(coll, fecha0, hora0, id)}</select></label>
         </div>
-        <div class="prog-zona">Zona horaria: ${esc(METRICOOL_TZ)}</div>
+        <div class="prog-zona">Zona horaria: ${esc(METRICOOL_TZ)} · también puedes arrastrarla a un día en <b>Calendario</b></div>
 
         <div class="prog-redes-label">Dónde se publica</div>
         <div class="prog-redes">
@@ -6622,12 +6725,13 @@ function openScheduleModal(coll, id){
             <input type="checkbox" value="${r.id}" ${marcadas.has(r.id) ? "checked" : ""}>${esc(r.label)}</label>`).join("")}
         </div>
 
-        <label class="prog-borrador"><input type="checkbox" id="progBorrador">
+        <label class="prog-borrador"><input type="checkbox" id="progBorrador" ${previo.borrador ? "checked" : ""}>
           Dejarla como borrador en Metricool (no se publica sola)</label>
 
         <div class="row">
-          <button class="btn btn-ghost" data-close>Cancelar</button>
-          <button class="btn btn-gold" id="progEnviar"><svg><use href="#i-cal"/></svg> Programar</button>
+          ${previo.id ? `<button class="btn btn-ghost prog-quitar" id="progQuitar" style="margin-right:auto"><svg><use href="#i-trash"/></svg> Quitar de Metricool</button>` : ""}
+          <button class="btn btn-ghost" data-close>${opts.desdeAprobacion ? "Ahora no" : "Cancelar"}</button>
+          <button class="btn btn-gold" id="progEnviar"><svg><use href="#i-cal"/></svg> ${previo.fecha ? "Reprogramar" : "Programar"}</button>
         </div>
       </div>
     </div>`;
@@ -6641,26 +6745,145 @@ function openScheduleModal(coll, id){
   $$(".prog-red input").forEach(chk => {
     chk.onchange = () => chk.closest(".prog-red").classList.toggle("on", chk.checked);
   });
+  // al cambiar de día se recalcula qué horas están ocupadas ese día
+  $("#progFecha").onchange = () => {
+    $("#progHora").innerHTML = progHorasOptions(coll, $("#progFecha").value, $("#progHora").value, id);
+  };
+
+  const quitar = $("#progQuitar");
+  if(quitar) quitar.onclick = async () => {
+    quitar.disabled = true; quitar.textContent = "Quitando…";
+    try{
+      await llamarMetricool({accion:"borrar", blogId: marca.metricoolBlogId, id: previo.id});
+      const ahora = find(coll, id); if(ahora) ahora.programado = null;
+      logActivity("cal", `<b>Quitado de Metricool:</b> ${esc(it.title || it.idea || "Pieza")}.`);
+      touch(); render(); host.innerHTML = "";
+      toast("Se quitó de la programación de Metricool.", "history");
+    }catch(e){
+      quitar.disabled = false; quitar.innerHTML = `<svg><use href="#i-trash"/></svg> Quitar de Metricool`;
+      toast(`No se pudo quitar: ${e.message}`, "alert", true);
+    }
+  };
 
   $("#progEnviar").onclick = async () => {
     const fechaSolo = $("#progFecha").value, horaSolo = $("#progHora").value;
     const redes = $$(".prog-red input:checked").map(c => c.value);
-    if(!fechaSolo || !horaSolo){ toast("Falta la fecha o la hora.", "alert", true); return; }
+    if(!fechaSolo || !horaSolo){ toast("Falta el día o la hora.", "alert", true); return; }
+    if(new Date(`${fechaSolo}T${horaSolo}`) < new Date()){ toast("Ese día y hora ya pasaron.", "alert", true); return; }
     if(!redes.length){ toast("Elige al menos una red.", "alert", true); return; }
+    if(previo.fecha && previo.fechaSolo === fechaSolo && previo.horaSolo === horaSolo
+       && (previo.redes || []).join() === redes.join() && !!previo.borrador === $("#progBorrador").checked){
+      host.innerHTML = ""; return;
+    }
 
     const btn = $("#progEnviar");
-    btn.disabled = true; btn.innerHTML = "Programando…";
+    btn.disabled = true; btn.innerHTML = conVideo ? "Programando… (el video tarda un poco)" : "Programando…";
     const borrador = $("#progBorrador").checked;
+    // lo aprobado queda ligado a su aprobación: si se retira, se quita de Metricool
+    const auto = !!(cfg && aprobadaParaProgramar(coll, it));
     try{
-      await enviarAMetricool(coll, id, {fechaSolo, horaSolo, redes, borrador});
+      await enviarAMetricool(coll, id, {fechaSolo, horaSolo, redes, borrador, auto});
       host.innerHTML = "";
-      toast(borrador ? "Guardado como borrador en Metricool" : "Programado en Metricool ✓", "check");
+      toast(borrador ? `Borrador en Metricool para el ${fechaSolo} a las ${horaSolo}` : `Programado para el ${fechaSolo} a las ${horaSolo} ✓`, "check");
     }catch(e){
       console.warn("No se pudo programar", e);
-      btn.disabled = false; btn.innerHTML = `<svg><use href="#i-cal"/></svg> Programar`;
+      btn.disabled = false; btn.innerHTML = `<svg><use href="#i-cal"/></svg> ${previo.fecha ? "Reprogramar" : "Programar"}`;
       toast(`No se pudo programar: ${e.message}`, "alert", true);
     }
   };
+}
+
+/* ============================================================
+   CALENDARIO DE PUBLICACIÓN
+   Todo lo programado en Metricool de la marca, por día. Lo aprobado que todavía no
+   tiene fecha espera en la columna de la izquierda. Arrastrar una pieza a un día abre
+   la ventana de programar con ese día puesto, para elegir la hora.
+   ============================================================ */
+const PROG_COLLS = ["reels","youtube","carousels","posts","stories","urgente"];
+const PROG_LABEL = {reels:"Reel", youtube:"YouTube", carousels:"Carrusel", posts:"Post", stories:"Historia", urgente:"Fin de mes"};
+
+function progThumb(coll, it){
+  const img = (PROG_MEDIA[coll](it) || []).find(Boolean);
+  if(img) return img;
+  const v = PROG_VIDEO[coll] && extractDriveFileId(PROG_VIDEO[coll](it) || "");
+  return v ? driveVideoThumb(v) : "";
+}
+
+function calChipHTML(coll, it, conHora){
+  const p = it.programado || {};
+  const src = progThumb(coll, it);
+  const nombre = it.title || it.idea || "Sin título";
+  return `<div class="cal-chip cal-${coll} ${p.borrador ? "is-draft" : ""} ${it.published ? "is-pub" : ""}" draggable="true"
+      data-prog-chip data-coll="${coll}" data-id="${it.id}"
+      title="${esc(PROG_LABEL[coll])} — ${esc(nombre)}${p.fecha ? ` · ${esc(p.horaSolo)}${p.borrador ? " (borrador)" : ""}` : ""}">
+    <span class="cal-thumb">${src ? `<img src="${esc(src)}" alt="" loading="lazy">` : `<svg><use href="#i-img"/></svg>`}</span>
+    <span class="cal-txt">
+      <span class="cal-meta">${conHora && p.horaSolo ? `<b>${esc(p.horaSolo)}</b> · ` : ""}${esc(PROG_LABEL[coll])}${p.borrador ? " · borrador" : ""}</span>
+      <span class="cal-nombre">${esc(nombre)}</span>
+    </span>
+  </div>`;
+}
+
+function viewCalendario(){
+  const hoy = new Date();
+  const off = S.ui.calOffset || 0;
+  const base = new Date(hoy.getFullYear(), hoy.getMonth() + off, 1);
+  const mesTxt = base.toLocaleDateString("es", {month:"long", year:"numeric"});
+  const mesLabel = mesTxt.charAt(0).toUpperCase() + mesTxt.slice(1);
+  const hoyStr = ymd(hoy);
+
+  // lo programado, agrupado por día
+  const porDia = {};
+  PROG_COLLS.filter(progPuede).forEach(c => (S[c] || []).forEach(x => {
+    const p = x.programado;
+    if(p && p.fechaSolo) (porDia[p.fechaSolo] = porDia[p.fechaSolo] || []).push([c, x]);
+  }));
+  Object.values(porDia).forEach(l => l.sort((a, b) => String(a[1].programado.horaSolo).localeCompare(String(b[1].programado.horaSolo))));
+
+  const pendientes = Object.keys(PROG_AUTO).flatMap(c => sorted(c)
+    .filter(x => aprobadaParaProgramar(c, x) && !(x.programado && x.programado.fecha)).map(x => [c, x]));
+
+  // semanas completas empezando en domingo, como el calendario de Metricool
+  const inicio = new Date(base); inicio.setDate(1 - base.getDay());
+  const diasMes = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+  const total = Math.ceil((base.getDay() + diasMes) / 7) * 7;
+  let celdas = "";
+  for(let i = 0; i < total; i++){
+    const d = new Date(inicio); d.setDate(inicio.getDate() + i);
+    const f = ymd(d);
+    const items = porDia[f] || [];
+    const pasado = f < hoyStr;
+    celdas += `<div class="cal-dia ${d.getMonth() !== base.getMonth() ? "fuera" : ""} ${pasado ? "pasado" : ""} ${f === hoyStr ? "hoy" : ""}" data-cal-day="${f}">
+      <div class="cal-num">${d.getDate()}</div>
+      ${items.map(([c, x]) => calChipHTML(c, x, true)).join("")}
+    </div>`;
+  }
+
+  const conectado = metricoolEnabled() && brandById(activeBrandId).metricoolBlogId;
+  return `
+  <div class="page-head">
+    <div><h1>Calendario</h1>
+      <p>Arrastra una pieza a un día para programarla o cambiarla de fecha; al soltarla eliges la hora. También puedes hacer clic en ella.</p></div>
+    <div class="actions cal-nav">
+      <button class="btn btn-ghost btn-sm icon-only" data-cal-mes="prev" title="Mes anterior"><svg style="transform:rotate(180deg)"><use href="#i-right"/></svg></button>
+      <span class="cal-mes">${esc(mesLabel)}</span>
+      <button class="btn btn-ghost btn-sm icon-only" data-cal-mes="next" title="Mes siguiente"><svg><use href="#i-right"/></svg></button>
+      ${off ? `<button class="btn btn-ghost btn-sm" data-cal-mes="hoy">Hoy</button>` : ""}
+    </div>
+  </div>
+  ${conectado ? "" : `<div class="prog-aviso warn" style="margin-bottom:16px"><svg><use href="#i-alert"/></svg>Metricool no está conectado para esta marca: el calendario se ve, pero no se puede programar.</div>`}
+  <div class="cal-wrap">
+    <aside class="cal-pend">
+      <div class="cal-pend-head">Aprobado sin fecha <span class="count">${pendientes.length}</span></div>
+      ${pendientes.length
+        ? pendientes.map(([c, x]) => calChipHTML(c, x, false)).join("")
+        : `<p class="cal-vacio">Todo lo aprobado ya tiene fecha. Lo que apruebes (en reels, <b>Aprobado para publicar</b>) aparece aquí.</p>`}
+    </aside>
+    <div class="cal-mesgrid">
+      ${["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"].map(d => `<div class="cal-sem">${d}</div>`).join("")}
+      ${celdas}
+    </div>
+  </div>`;
 }
 
 function openImageLightbox(src, title, kind){
@@ -8603,7 +8826,7 @@ function viewSettings(){
     <div class="card">
       <div class="card-head"><h3>Metricool</h3><span class="cloud-status ${metricoolEnabled() && brandById(activeBrandId).metricoolBlogId ? "ok" : "err"}">${metricoolEnabled() && brandById(activeBrandId).metricoolBlogId ? "Conectado" : "Sin conectar"}</span></div>
       <div class="card-body">
-        <p class="hint-line" style="margin-top:0">Al marcar <b>Diseño aprobado</b> (en los reels, <b>Aprobado para publicar</b>), cada pieza se programa sola en el siguiente horario libre a partir de mañana: reels a las ${PROG_AUTO.reels.horas.join(", ")} (Instagram, Facebook y TikTok), posts y carruseles a las ${PROG_AUTO.posts.horas.join(", ")} e historias a las ${PROG_AUTO.stories.horas.join(", ")} (Instagram y Facebook). Si se retira la aprobación o se desaprueba, se quita de Metricool.</p>
+        <p class="hint-line" style="margin-top:0">Al marcar <b>Diseño aprobado</b> (en los reels, <b>Aprobado para publicar</b>) se abre la ventana para elegir el día y la hora, con el siguiente horario libre ya propuesto: reels a las ${PROG_AUTO.reels.horas.join(", ")} (Instagram, Facebook y TikTok), posts y carruseles a las ${PROG_AUTO.posts.horas.join(", ")} e historias a las ${PROG_AUTO.stories.horas.join(", ")} (Instagram y Facebook). En <b>Calendario</b> se ve todo lo programado y se cambia de día arrastrando. Si se retira la aprobación o se desaprueba, se quita de Metricool. El botón de abajo programa de una vez, en los horarios libres, todo lo aprobado que siga sin fecha.</p>
         <button class="btn btn-ghost lock-viewer" data-action="prog-pendientes" ${metricoolEnabled() ? "" : "disabled"}><svg><use href="#i-cal"/></svg> Programar todo lo aprobado que falta</button>
       </div>
     </div>
@@ -9068,6 +9291,7 @@ function render(){
     v === "stories"   ? viewStories(q) :
     v === "urgente"   ? viewUrgente(q) :
     v === "feed"      ? viewFeed() :
+    v === "calendario"? viewCalendario() :
     v === "settings"  ? viewSettings() : viewDashboard();
   $("#view").innerHTML = html;
   $$(".textarea").forEach(autosize);
@@ -9732,6 +9956,14 @@ document.addEventListener("click", async e => {
 
   const prog = t.closest("[data-schedule]");
   if(prog){ openScheduleModal(prog.dataset.coll, prog.dataset.id); return; }
+  const calChip = t.closest("[data-prog-chip]");
+  if(calChip){ openScheduleModal(calChip.dataset.coll, calChip.dataset.id); return; }
+  const calMes = t.closest("[data-cal-mes]");
+  if(calMes){
+    const dir = calMes.dataset.calMes;
+    S.ui.calOffset = dir === "hoy" ? 0 : (S.ui.calOffset || 0) + (dir === "next" ? 1 : -1);
+    render(); return;
+  }
 
   const zoomBtn = t.closest("[data-zoom]");
   if(zoomBtn){
@@ -9840,7 +10072,7 @@ document.addEventListener("click", async e => {
     touch(); render();
     toast(it.reviewed ? "Listo para publicar ✓" : "Revisión retirada", it.reviewed ? "check" : "history");
     if(PROG_POR_REVISADO.has(rev.dataset.coll)){
-      if(it.reviewed) autoProgramar(rev.dataset.coll, rev.dataset.id);
+      if(it.reviewed) proponerProgramacion(rev.dataset.coll, rev.dataset.id);
       else cancelarAutoProgramado(rev.dataset.coll, rev.dataset.id);
     }
     return;
@@ -9869,7 +10101,7 @@ document.addEventListener("click", async e => {
     touch(); render();
     toast(it.designApproved === true ? "Diseño marcado como aprobado ✓" : "Marca retirada", it.designApproved === true ? "check" : "history");
     const {coll, id} = desApprove.dataset;
-    if(it.designApproved === true) autoProgramar(coll, id);
+    if(it.designApproved === true) proponerProgramacion(coll, id);
     else cancelarAutoProgramado(coll, id);
     return;
   }
@@ -10117,6 +10349,41 @@ document.addEventListener("drop", e => {
     c.slides.splice(to, 0, m);
     touch(); render();
   }
+});
+
+/* Calendario: arrastrar una pieza a un día abre la ventana de programar con ese día.
+   Va aparte de los arrastres del feed y las slides, que se guían por dragSrc. */
+let calDrag = null;
+document.addEventListener("dragstart", e => {
+  const chip = e.target.closest && e.target.closest("[data-prog-chip]");
+  if(!chip) return;
+  if(!canEdit()){ e.preventDefault(); return; }
+  calDrag = {coll: chip.dataset.coll, id: chip.dataset.id};
+  chip.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+  try{ e.dataTransfer.setData("text/plain", chip.dataset.id); }catch(_){}
+});
+document.addEventListener("dragend", () => { calDrag = null; $$(".cal-over").forEach(x => x.classList.remove("cal-over")); });
+document.addEventListener("dragover", e => {
+  if(!calDrag) return;
+  const dia = e.target.closest("[data-cal-day]");
+  $$(".cal-over").forEach(x => { if(x !== dia) x.classList.remove("cal-over"); });
+  if(!dia || dia.classList.contains("pasado")) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  dia.classList.add("cal-over");
+});
+document.addEventListener("drop", e => {
+  if(!calDrag) return;
+  const dia = e.target.closest("[data-cal-day]");
+  const {coll, id} = calDrag;
+  calDrag = null;
+  $$(".cal-over").forEach(x => x.classList.remove("cal-over"));
+  if(!dia || dia.classList.contains("pasado")) return;
+  e.preventDefault();
+  const it = find(coll, id); if(!it) return;
+  if(it.programado && it.programado.fechaSolo === dia.dataset.calDay) return;
+  openScheduleModal(coll, id, {fecha: dia.dataset.calDay});
 });
 
 /* atajos */
