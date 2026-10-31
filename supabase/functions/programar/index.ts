@@ -127,6 +127,7 @@ Deno.serve(async (req) => {
     const {
       accion, id, blogId, texto = "", media = [], videos = [], redes = [],
       fecha, zona = "America/New_York", borrador = false, tipoInstagram, tipoFacebook,
+      q = "", ubicacion, audioIg, musicaTiktok, portada,
     } = await req.json();
 
     if (!blogId) return responder({ error: "Falta el blogId de la marca." }, 400);
@@ -138,6 +139,24 @@ Deno.serve(async (req) => {
       await metricool(`/v2/scheduler/posts/${encodeURIComponent(String(id))}`, blogId, { method: "DELETE" });
       return responder({ ok: true, borrada: id });
     }
+    // Catálogos para elegir desde la app: música de Instagram, canciones en tendencia
+    // de TikTok y lugares (Instagram y Facebook usan los lugares de Facebook).
+    if (accion === "musica-ig") {
+      const r = await metricool(
+        `/v2/scheduler/catalogs/instagram/audio?searchQuery=${encodeURIComponent(String(q))}&limit=25`, blogId);
+      return responder({ ok: true, data: r?.data ?? r });
+    }
+    if (accion === "musica-tiktok") {
+      const r = await metricool(
+        "/v2/scheduler/catalogs/tiktok/trending-tracks?countryCode=US&dateRange=7DAY", blogId);
+      return responder({ ok: true, data: r?.data ?? r });
+    }
+    if (accion === "ubicacion") {
+      const r = await metricool(
+        `/actions/facebook/search-location?q=${encodeURIComponent(String(q))}`, blogId);
+      return responder({ ok: true, data: r?.data ?? r });
+    }
+
     if (!fecha)  return responder({ error: "Falta la fecha de publicación." }, 400);
 
     const destinos = (redes as string[]).filter((n) => REDES.includes(n));
@@ -194,7 +213,30 @@ Deno.serve(async (req) => {
       media: archivos,
     };
     if (tipoInstagram && destinos.includes("instagram")) {
-      cuerpo.instagramData = { type: tipoInstagram };
+      const ig: Record<string, unknown> = { type: tipoInstagram };
+      // la música de Instagram solo se le pone a los reels
+      if (audioIg?.audioId && tipoInstagram === "REEL") {
+        ig.audioConfiguration = audioIg;
+        ig.audioName = audioIg.title;
+      }
+      cuerpo.instagramData = ig;
+    }
+    if (musicaTiktok?.musicId && destinos.includes("tiktok")) {
+      cuerpo.tiktokData = { privacyOption: "PUBLIC_TO_EVERYONE", music: musicaTiktok };
+    }
+    if (ubicacion?.id) cuerpo.location = ubicacion;
+
+    // Portada propia del reel: Metricool la toma como miniatura del video. Si no se
+    // puede preparar, el reel sale igual con el primer cuadro como portada.
+    if (portada && listos.length) {
+      try {
+        const normal = await metricool(
+          `/actions/normalize/image/url?url=${encodeURIComponent(portada)}`, blogId);
+        const u = typeof normal === "string" ? normal.trim() : "";
+        if (u.startsWith("http")) cuerpo.videoThumbnailUrl = u;
+      } catch (e) {
+        console.log("portada falló →", String(e?.message ?? e).slice(0, 300));
+      }
     }
     if (tipoFacebook && destinos.includes("facebook")) {
       cuerpo.facebookData = { type: tipoFacebook };

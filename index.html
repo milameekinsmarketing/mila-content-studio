@@ -595,6 +595,73 @@ button.mover-op:hover{border-color:var(--gold);background:var(--gold-pale)}
 .story-body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:10px;flex:1}
 .story-foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:auto}
 
+/* Reels y posts en tarjetas: clic → ficha completa */
+.tile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px}
+.tile-card{cursor:pointer;transition:transform .15s,box-shadow .15s}
+.tile-card:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+.tile-media{position:relative;border-radius:12px;overflow:hidden;background:var(--cream-2)}
+.tile-media.ratio-916{aspect-ratio:9/16}
+.tile-media.ratio-45{aspect-ratio:4/5}
+.tile-media.ratio-11{aspect-ratio:1/1}
+.tile-media img{width:100%;height:100%;object-fit:cover;display:block}
+.tile-vacio{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  color:var(--muted);font-size:12px}
+.tile-vacio svg{width:26px;height:26px}
+.tile-play{position:absolute;right:8px;bottom:8px;width:30px;height:30px;border-radius:50%;background:rgba(14,42,74,.7);
+  display:grid;place-items:center;color:#fff}
+.tile-play svg{width:18px;height:18px}
+.tile-titulo{font-size:13px;font-weight:500;color:var(--navy);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
+.tile-chips{display:flex;flex-wrap:wrap;gap:5px}
+.tile-chip{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;color:#43566C;background:var(--cream-2);
+  border:1px solid var(--line);border-radius:999px;padding:2px 8px}
+.tile-chip svg{width:11px;height:11px}
+.tile-chip.ok{background:#EAF6EF;border-color:#CFE8DA;color:var(--ok)}
+.tile-chip.prog{background:var(--gold-pale);border-color:var(--gold-soft);color:var(--gold-deep)}
+.tile-chip.mal{background:#FBECEA;border-color:#F1CFCA;color:var(--danger)}
+
+/* Ventana con la ficha completa */
+html.detalle-abierto{overflow:hidden}
+.detalle-bg{position:fixed;inset:0;background:rgba(14,42,74,.45);backdrop-filter:blur(3px);z-index:140;
+  display:flex;justify-content:center;align-items:flex-start;padding:28px 20px;overflow:hidden}
+.detalle{background:var(--cream);border-radius:20px;width:100%;max-width:1060px;max-height:calc(100vh - 56px);overflow:auto;
+  box-shadow:0 30px 70px rgba(14,42,74,.3);padding:0 22px 22px}
+.detalle-barra{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;padding:14px 0 10px;
+  background:linear-gradient(var(--cream) 80%, transparent)}
+.detalle-pos{font-size:12px;color:var(--muted);min-width:56px;text-align:center}
+.detalle-x{margin-left:auto}
+.detalle .card,.detalle .reel-mini{margin:0}
+.detalle [data-collapse]{display:none}
+@media (max-width:700px){
+  .detalle-bg{padding:0}
+  .detalle{border-radius:0;max-height:100vh;height:100vh;padding:0 12px 16px}
+  .tile-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .detalle .post-layout{grid-template-columns:1fr !important}
+}
+
+/* Para redes: música y ubicación */
+.para-redes{display:flex;flex-direction:column;gap:7px;margin:4px 0 16px}
+.redes-elegido{display:flex;align-items:center;gap:4px}
+.redes-elegir{flex:1;display:flex;align-items:center;gap:10px;text-align:left;background:#fff;border:1px solid var(--line);
+  border-radius:12px;padding:9px 12px;font-family:inherit;cursor:pointer;min-width:0}
+.redes-elegir:hover{border-color:var(--gold-soft)}
+.redes-lbl{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);flex:none;width:130px}
+.redes-val{font-size:13px;color:var(--navy);display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.redes-val.vacio{color:var(--gold-deep)}
+.redes-val img{width:26px;height:26px;border-radius:5px;object-fit:cover;flex:none}
+.redes-nota{font-size:11px;color:var(--muted)}
+.sel-modal{max-width:560px;text-align:left}
+.sel-buscar{margin:6px 0 12px}
+.sel-lista{max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.sel-item{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:7px 9px}
+.sel-img{width:40px;height:40px;border-radius:8px;overflow:hidden;background:var(--cream-2);display:grid;place-items:center;flex:none}
+.sel-img img{width:100%;height:100%;object-fit:cover}
+.sel-img svg{width:18px;height:18px;color:var(--muted)}
+.sel-txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.sel-txt b{font-size:13px;color:var(--navy);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sel-txt small{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sel-msg{font-size:13px;color:var(--muted);margin:8px 0}
+
 /* Guía de distribución de Posts: filosofía de la colección + orden narrativo */
 .playbook{background:linear-gradient(155deg,var(--navy),var(--navy-soft));color:#EDE7D8;border-radius:var(--r-lg);
   box-shadow:var(--shadow);margin-bottom:22px;overflow:hidden}
@@ -1059,6 +1126,7 @@ body.needs-auth .app{display:none}
   <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V5M8 9l4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
   <symbol id="i-dots" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 15l6-6 6 6"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21s-6.5-6.2-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 14.8 12 21 12 21z"/><circle cx="12" cy="9.8" r="2.3"/></symbol>
   <symbol id="i-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></symbol>
   <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-3-5.3 3 1.1-6L3.4 9.9l6-.8z" stroke-linejoin="round"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>
@@ -1204,6 +1272,7 @@ body.needs-auth .app{display:none}
 </div>
 
 <div class="toast-wrap" id="toasts"></div>
+<div id="detalleHost"></div>
 <div id="modalHost"></div>
 <input type="file" id="filePicker" accept="image/*" class="hidden">
 
@@ -6527,7 +6596,11 @@ async function enviarAMetricool(coll, id, {fechaSolo, horaSolo, redes, borrador=
     zona: METRICOOL_TZ,
     borrador,
     tipoInstagram: PROG_IG_TYPE[coll],
-    tipoFacebook: PROG_FB_TYPE[coll]
+    tipoFacebook: PROG_FB_TYPE[coll],
+    ubicacion: it.ubicacion || null,
+    audioIg: coll === "reels" ? (it.musicaIg || null) : null,
+    musicaTiktok: coll === "reels" ? (it.musicaTiktok || null) : null,
+    portada: video && it.cover && /^https?:/.test(it.cover) ? it.cover : ""
   });
   // se vuelve a buscar: mientras Metricool respondía, la vista pudo recargarse
   const ahora = find(coll, id);
@@ -7968,7 +8041,8 @@ function viewPosts(q=""){
   ${postsPlaybookHTML()}
   ${contentMonthsTabsHTML("posts")}
   ${filterBarHTML("posts", all.length, list.length)}
-  ${list.length ? list.map((p,i) => postCard(p,i)).join("") : emptyState("Sin posts para esta tanda", "Ajusta el filtro o crea un nuevo post.", "posts")}`;
+  ${list.length ? `<div class="tile-grid">${list.map((p, i) => tileCardHTML("posts", p, i)).join("")}</div>`
+                : emptyState("Sin posts para esta tanda", "Ajusta el filtro o crea un nuevo post.", "posts")}`;
 }
 
 function postCard(p, i){
@@ -8007,6 +8081,7 @@ function postCard(p, i){
         <div>
           ${field("Texto del arte (in-graphic)","text", textarea("posts", p.id, "designText", p.designText, "Todo el texto que va dentro de la pieza, con su jerarquía...", "", 5))}
           ${field("Caption (texto final)","pen", textarea("posts", p.id, "copy", p.copy, "Redacta aquí el caption completo que acompañará la publicación en la red social...", "soft", 6))}
+          ${paraRedesHTML("posts", p)}
           ${field("Enlaces / referencias","link", `<div style="position:relative">
               ${input("posts", p.id, "links", p.links, "Añade enlaces a Drive, referencias visuales o archivos")}
               <svg style="position:absolute;right:14px;top:50%;transform:translateY(-50%);width:17px;height:17px;color:var(--muted)"><use href="#i-clip"/></svg>
@@ -8032,7 +8107,14 @@ function viewReels(q=""){
   <div class="readonly-note"><svg width="16" height="16"><use href="#i-alert"/></svg> Modo <b>Viewer</b>: la edición está bloqueada.</div>
   ${contentMonthsTabsHTML("reels")}
   ${filterBarHTML("reels", all.length, list.length)}
-  ${list.length ? list.map((r,i) => `
+  ${list.length ? `<div class="tile-grid">${list.map((r, i) => tileCardHTML("reels", r, i)).join("")}</div>`
+                : emptyState("Sin reels para esta tanda", "Ajusta el filtro o planifica un nuevo reel.", "reels")}`;
+}
+
+/* La ficha completa de un reel: se abre en la ventana de detalle al hacer clic en su
+   tarjeta. */
+function reelDetailHTML(r){
+  return `
       <div class="reel-mini ${r.published ? "published-item" : ""}" data-item="${r.id}">
         <div class="reel-mini-head">
           <span class="num">${pubOrderLabel("reels", r.id, "# Reel")}</span>
@@ -8064,6 +8146,7 @@ function viewReels(q=""){
               Arrastra los archivos encima o haz clic para subirlos; cualquiera se amplía y se descarga.</small>
             </div>
           </div>
+          ${paraRedesHTML("reels", r)}
           ${field("Tomas — Desarrollo y acción","list", textarea("reels", r.id, "desarrollo", r.desarrollo, "Describe las tomas, el desarrollo y la acción de este reel: el guion completo va aquí...", "big", 8))}
           ${field("Copy","pen", textarea("reels", r.id, "copy", r.copy, "El copy que acompaña la publicación...", "soft", 4))}
           <div class="reel-checklist">
@@ -8074,7 +8157,7 @@ function viewReels(q=""){
           </div>
           ${starsHTML("reels", r.id, r.rating, "Valoración (1 a 10)")}
         </div>
-      </div>`).join("") : emptyState("Sin reels para esta tanda", "Ajusta el filtro o planifica un nuevo reel.", "reels")}`;
+      </div>`;
 }
 
 /* Sección gemela a Reels (mismos campos, misma tarjeta, misma clase CSS "reel-mini")
@@ -8305,6 +8388,213 @@ function storyCard(s, i){
       </div>
     </div>
   </div>`;
+}
+
+/* ---------- Reels y posts en tarjetas ----------
+   Como las historias: una tarjeta por pieza con su imagen y su estado. Al hacer clic
+   se abre la ficha completa (copy, guion, aprobaciones, programar) en una ventana. */
+function tileImagen(coll, it){
+  if(coll === "posts") return it.image || "";
+  if(it.cover) return it.cover;
+  const v = extractDriveFileId(it.video || "");
+  return v ? driveVideoThumb(v) : (it.referencia || "");
+}
+
+/* i = posición dentro del mes que se está viendo, como en las historias. */
+function tileCardHTML(coll, it, i){
+  const src = tileImagen(coll, it);
+  const p = it.programado;
+  const ratio = coll === "reels" ? "ratio-916" : it.ratio === "1:1" ? "ratio-11" : it.ratio === "9:16" ? "ratio-916" : "ratio-45";
+  const aprobado = coll === "reels" ? !!it.reviewed : it.designApproved === true;
+  const chips = [
+    it.published ? `<span class="tile-chip ok"><svg><use href="#i-check-plain"/></svg>Publicado</span>`
+      : p && p.fechaSolo ? `<span class="tile-chip prog"><svg><use href="#i-clock"/></svg>${esc(p.fechaSolo.slice(5).split("-").reverse().join("/"))} · ${esc(p.horaSolo)}</span>`
+      : aprobado ? `<span class="tile-chip ok"><svg><use href="#i-check-plain"/></svg>Aprobado</span>` : "",
+    it.designApproved === false ? `<span class="tile-chip mal">Diseño desaprobado</span>` : "",
+    coll === "reels" && it.video ? `<span class="tile-chip"><svg><use href="#i-play"/></svg>Video</span>` : "",
+    it.musicaIg || it.musicaTiktok ? `<span class="tile-chip" title="${esc((it.musicaIg || it.musicaTiktok).title || "")}">♪ Música</span>` : "",
+    it.ubicacion ? `<span class="tile-chip" title="${esc(it.ubicacion.name || "")}"><svg><use href="#i-pin"/></svg>Ubicación</span>` : ""
+  ].filter(Boolean).join("");
+  return `
+  <div class="story-card tile-card ${it.published ? "published-item" : ""}" data-abrir data-coll="${coll}" data-id="${it.id}" title="Abrir ${coll === "reels" ? "el reel" : "el post"}">
+    <div class="story-top">
+      <span class="num">#${i + 1}</span>
+      <span class="story-top-acciones">${moverMesBtnHTML(coll, it.id, true)}</span>
+    </div>
+    <div class="story-media">
+      <div class="tile-media ${ratio}">
+        ${src ? `<img src="${esc(src)}" alt="" loading="lazy">` : `<div class="tile-vacio"><svg><use href="#${coll === "reels" ? "i-reel" : "i-post"}"/></svg>Sin ${coll === "reels" ? "portada" : "imagen"}</div>`}
+        ${coll === "reels" && it.video ? `<span class="tile-play"><svg><use href="#i-play"/></svg></span>` : ""}
+      </div>
+    </div>
+    <div class="story-body tile-body">
+      <div class="tile-titulo">${esc(it.title || "Sin título")}</div>
+      ${chips ? `<div class="tile-chips">${chips}</div>` : ""}
+    </div>
+  </div>`;
+}
+
+/* La ficha abierta. No vive en S: es de esta pestaña y no se guarda. */
+let detalle = null;
+function abrirDetalle(coll, id){ detalle = {coll, id}; renderDetalle(); $$("#detalleHost .textarea").forEach(autosize); }
+function cerrarDetalle(){ detalle = null; renderDetalle(); }
+/* Pasar a la pieza anterior o siguiente de la misma lista, sin cerrar. */
+function moverDetalle(paso){
+  if(!detalle) return;
+  const ids = $$(`#view [data-abrir][data-coll="${detalle.coll}"]`).map(x => x.dataset.id);
+  const i = ids.indexOf(detalle.id);
+  if(i < 0 || !ids[i + paso]) return;
+  abrirDetalle(detalle.coll, ids[i + paso]);
+}
+function renderDetalle(){
+  const host = $("#detalleHost");
+  if(!host) return;
+  const it = detalle && find(detalle.coll, detalle.id);
+  document.documentElement.classList.toggle("detalle-abierto", !!it);
+  if(!it){ detalle = null; host.innerHTML = ""; return; }
+  // se conserva dónde estaba el scroll: cualquier cambio (aprobar, subir) vuelve a pintar
+  const antes = host.querySelector(".detalle");
+  const scroll = antes ? antes.scrollTop : 0;
+  const ids = $$(`#view [data-abrir][data-coll="${detalle.coll}"]`).map(x => x.dataset.id);
+  const i = ids.indexOf(detalle.id);
+  host.innerHTML = `
+    <div class="detalle-bg" data-detalle-cerrar>
+      <div class="detalle detalle-${detalle.coll}" role="dialog" aria-modal="true">
+        <div class="detalle-barra">
+          <button class="btn btn-ghost btn-sm icon-only" data-detalle-nav="-1" ${i <= 0 ? "disabled" : ""} title="Anterior"><svg style="transform:rotate(180deg)"><use href="#i-right"/></svg></button>
+          <span class="detalle-pos">${i >= 0 ? `${i + 1} de ${ids.length}` : ""}</span>
+          <button class="btn btn-ghost btn-sm icon-only" data-detalle-nav="1" ${i < 0 || i >= ids.length - 1 ? "disabled" : ""} title="Siguiente"><svg><use href="#i-right"/></svg></button>
+          <button class="btn btn-ghost btn-sm icon-only detalle-x" data-detalle-cerrar title="Cerrar (Esc)"><svg><use href="#i-x"/></svg></button>
+        </div>
+        ${detalle.coll === "reels" ? reelDetailHTML(it) : postCard({...it, collapsed:false}, 0)}
+      </div>
+    </div>`;
+  const nuevo = host.querySelector(".detalle");
+  if(nuevo) nuevo.scrollTop = scroll;
+}
+
+/* ---------- Música, ubicación y portada para redes ----------
+   Se eligen de los catálogos de Metricool, así llegan a Instagram y TikTok tal cual:
+   la música de Instagram y la de TikTok son catálogos distintos, y la ubicación es un
+   lugar de Facebook (el que usa Instagram). */
+function seleccionHTML(coll, it, campo, etiqueta, vacio){
+  const v = it[campo];
+  if(!v) return `<button type="button" class="redes-elegir lock-viewer" data-elegir="${campo}" data-coll="${coll}" data-id="${it.id}">
+      <span class="redes-lbl">${etiqueta}</span><span class="redes-val vacio">${vacio}</span></button>`;
+  const img = v.coverArtworkUrl || v.thumbnailUrl || "";
+  const titulo = v.title || v.name || "";
+  const sub = v.displayArtist || v.igUsername || v.author || (v.location && [v.location.city, v.location.state].filter(Boolean).join(", ")) || "";
+  return `<div class="redes-elegido">
+      <button type="button" class="redes-elegir lock-viewer" data-elegir="${campo}" data-coll="${coll}" data-id="${it.id}" title="Cambiar">
+        <span class="redes-lbl">${etiqueta}</span>
+        <span class="redes-val">${img ? `<img src="${esc(img)}" alt="">` : ""}<b>${esc(titulo)}</b>${sub ? ` · ${esc(sub)}` : ""}</span>
+      </button>
+      <button type="button" class="icon-btn lock-viewer" data-quitar-sel="${campo}" data-coll="${coll}" data-id="${it.id}" title="Quitar"><svg><use href="#i-x"/></svg></button>
+    </div>`;
+}
+function paraRedesHTML(coll, it){
+  return `<div class="para-redes">
+    <div class="label"><svg><use href="#i-feed"/></svg> Para redes</div>
+    ${coll === "reels" ? seleccionHTML(coll, it, "musicaIg", "Música · Instagram", "Elegir canción…") : ""}
+    ${coll === "reels" ? seleccionHTML(coll, it, "musicaTiktok", "Música · TikTok", "Elegir de las tendencias…") : ""}
+    ${seleccionHTML(coll, it, "ubicacion", "Ubicación", "Buscar lugar…")}
+    <small class="redes-nota">Se mandan con la publicación al programarla en Metricool${coll === "reels" ? ", junto con la portada" : ""}.</small>
+  </div>`;
+}
+
+const SELECTORES = {
+  musicaIg:     {titulo:"Música para Instagram", placeholder:"Busca una canción o artista", accion:"musica-ig", buscar:true},
+  musicaTiktok: {titulo:"Música para TikTok", placeholder:"Filtrar las tendencias", accion:"musica-tiktok", buscar:false},
+  ubicacion:    {titulo:"Ubicación", placeholder:"Ej.: Raleigh, North Carolina", accion:"ubicacion", buscar:true}
+};
+/* Lo que devuelve cada catálogo, puesto en una sola forma para la lista y para guardar. */
+function normalizarResultados(campo, data){
+  if(campo === "musicaIg"){
+    const d = data || {};
+    return [...(d.music || []), ...(d.originalSound || [])].map(a => ({
+      guardar: {audioId:a.audioId, audioType:a.audioType, title:a.title, displayArtist:a.displayArtist || "",
+                igUsername:a.igUsername || "", coverArtworkUrl:a.coverArtworkUrl || "", durationMs:a.durationMs || 0},
+      titulo: a.title, sub: a.displayArtist || (a.igUsername ? "@" + a.igUsername : "Sonido original"),
+      img: a.coverArtworkUrl, audio: a.downloadUrl }));
+  }
+  if(campo === "musicaTiktok"){
+    return (Array.isArray(data) ? data : []).map(t => ({
+      guardar: {musicId:t.commercialMusicId, title:t.commercialMusicName, author:t.artist,
+                previewUrl:t.previewUrl, thumbnailUrl:t.thumbnailUrl},
+      titulo: t.commercialMusicName, sub: [t.artist, (t.genres || [])[0]].filter(Boolean).join(" · "),
+      img: t.thumbnailUrl, audio: t.previewUrl }));
+  }
+  return (Array.isArray(data) ? data : []).map(l => ({
+    guardar: {id:l.id, name:l.name, link:l.link || "", location:l.location || null},
+    titulo: l.name, sub: l.location ? [l.location.street, l.location.city, l.location.state].filter(Boolean).join(", ") : "",
+    img: "", audio: "" }));
+}
+
+function abrirSelector(campo, coll, id){
+  if(!guard()) return;
+  const cfg = SELECTORES[campo]; if(!cfg) return;
+  if(!metricoolEnabled() || !brandById(activeBrandId).metricoolBlogId){
+    toast("Para elegir música o ubicación hace falta Metricool conectado en esta marca.", "alert", true); return;
+  }
+  const host = $("#modalHost");
+  host.innerHTML = `
+    <div class="modal-bg" data-close>
+      <div class="modal sel-modal" role="dialog" aria-modal="true">
+        <h3>${cfg.titulo}</h3>
+        <div class="sel-buscar"><input class="input" id="selQ" placeholder="${esc(cfg.placeholder)}" autocomplete="off"></div>
+        <div class="sel-lista" id="selLista"><p class="sel-msg">${cfg.buscar ? "Escribe y presiona Enter para buscar." : "Cargando…"}</p></div>
+        <div class="row"><button class="btn btn-ghost" data-close>Cerrar</button></div>
+      </div>
+    </div>`;
+  host.onclick = e => {
+    if(e.target.hasAttribute("data-close") || e.target.closest("button[data-close]")){ host.innerHTML = ""; return; }
+    const oir = e.target.closest("[data-oir]");
+    if(oir){
+      const el = $("#selAudio") || Object.assign(document.createElement("audio"), {id:"selAudio"});
+      if(!el.isConnected) host.appendChild(el);
+      if(el.dataset.src === oir.dataset.oir && !el.paused){ el.pause(); return; }
+      el.src = el.dataset.src = oir.dataset.oir; el.play().catch(() => toast("No se pudo reproducir la muestra.", "alert"));
+      return;
+    }
+    const pick = e.target.closest("[data-pick]");
+    if(pick){
+      const it = find(coll, id); if(!it) return;
+      it[campo] = resultados[Number(pick.dataset.pick)].guardar;
+      touch(); host.innerHTML = ""; render();
+      toast(`${cfg.titulo}: ${it[campo].title || it[campo].name}`, "check");
+    }
+  };
+  let resultados = [], todos = [];
+  const pintar = lista => {
+    resultados = lista;
+    $("#selLista").innerHTML = lista.length ? lista.map((r, i) => `
+      <div class="sel-item">
+        <span class="sel-img">${r.img ? `<img src="${esc(r.img)}" alt="">` : `<svg><use href="#${campo === "ubicacion" ? "i-pin" : "i-play"}"/></svg>`}</span>
+        <span class="sel-txt"><b>${esc(r.titulo || "")}</b><small>${esc(r.sub || "")}</small></span>
+        ${r.audio ? `<button type="button" class="btn btn-ghost btn-sm icon-only" data-oir="${esc(r.audio)}" title="Escuchar"><svg><use href="#i-play"/></svg></button>` : ""}
+        <button type="button" class="btn btn-gold btn-sm" data-pick="${i}">Elegir</button>
+      </div>`).join("") : `<p class="sel-msg">Sin resultados.</p>`;
+  };
+  const cargar = async q => {
+    $("#selLista").innerHTML = `<p class="sel-msg">Buscando…</p>`;
+    try{
+      const res = await llamarMetricool({accion: cfg.accion, blogId: brandById(activeBrandId).metricoolBlogId, q});
+      todos = normalizarResultados(campo, res.data);
+      pintar(todos);
+    }catch(e){
+      $("#selLista").innerHTML = `<p class="sel-msg">No se pudo consultar Metricool: ${esc(e.message)}</p>`;
+    }
+  };
+  const q = $("#selQ");
+  q.focus();
+  q.onkeydown = e => {
+    if(e.key !== "Enter") return;
+    if(cfg.buscar){ if(q.value.trim()) cargar(q.value.trim()); }
+  };
+  if(!cfg.buscar){
+    q.oninput = () => { const f = q.value.trim().toLowerCase(); pintar(todos.filter(r => `${r.titulo} ${r.sub}`.toLowerCase().includes(f))); };
+    cargar("");
+  }
 }
 
 /* ---------- FEED PREVIEW (tiempo real) ---------- */
@@ -9294,6 +9584,7 @@ function render(){
     v === "calendario"? viewCalendario() :
     v === "settings"  ? viewSettings() : viewDashboard();
   $("#view").innerHTML = html;
+  renderDetalle();
   $$(".textarea").forEach(autosize);
   updateSaveState();
   if(pendingFocus){
@@ -9393,6 +9684,7 @@ function createItem(coll){
   logActivity("ok", `<b>${label} creado:</b> ${esc(item.title || item.name || "Nueva historia")} está listo para editarse.`);
   touch();
   S.ui.view = coll;
+  if(coll === "posts" || coll === "reels") detalle = {coll, id: item.id};
   render();
   toast(`${label} creado`, "check");
 }
@@ -9777,6 +10069,22 @@ document.addEventListener("click", async e => {
 
   const mm = t.closest("[data-mover-mes]");
   if(mm){ e.preventDefault(); abrirMoverMes(mm.dataset.coll, mm.dataset.id); return; }
+
+  // tarjetas de reels y posts → ficha completa
+  const tile = t.closest("[data-abrir]");
+  if(tile && !t.closest("button, a, select, input, textarea")){ abrirDetalle(tile.dataset.coll, tile.dataset.id); return; }
+  if(t.matches("[data-detalle-cerrar]") || t.closest("button[data-detalle-cerrar]")){ cerrarDetalle(); return; }
+  const dnav = t.closest("[data-detalle-nav]");
+  if(dnav){ moverDetalle(Number(dnav.dataset.detalleNav)); return; }
+  const elegir = t.closest("[data-elegir]");
+  if(elegir){ abrirSelector(elegir.dataset.elegir, elegir.dataset.coll, elegir.dataset.id); return; }
+  const quitarSel = t.closest("[data-quitar-sel]");
+  if(quitarSel){
+    if(!guard()) return;
+    const it = find(quitarSel.dataset.coll, quitarSel.dataset.id);
+    if(it){ it[quitarSel.dataset.quitarSel] = null; touch(); render(); }
+    return;
+  }
 
   if(t.closest("#authLocal")){ e.preventDefault(); entrarConCopiaLocal(); return; }
   if(t.closest('[data-action="rellenar"]')){ e.preventDefault(); rellenarHuecos(); return; }
@@ -10389,7 +10697,10 @@ document.addEventListener("drop", e => {
 /* atajos */
 document.addEventListener("keydown", e => {
   if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s"){ e.preventDefault(); persist(); }
-  if(e.key === "Escape") $("#modalHost").innerHTML = "";
+  if(e.key === "Escape"){
+    if($("#modalHost").innerHTML.trim()) $("#modalHost").innerHTML = "";
+    else if(detalle) cerrarDetalle();
+  }
   // Ctrl/Cmd+Z deshace · Ctrl/Cmd+Shift+Z o Ctrl+Y rehace. Se ignora mientras se
   // escribe en un campo, para no pisar el deshacer propio del navegador dentro del texto.
   const enCampo = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || "")) || e.target.isContentEditable;
