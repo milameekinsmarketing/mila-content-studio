@@ -497,6 +497,13 @@ button.mover-op:hover{border-color:var(--gold);background:var(--gold-pale)}
 /* Recuadro con un video ya cargado */
 .media.is-video.has-img{border-style:solid;border-color:var(--line);background:#EFE7DA}
 .media .ph.video-loaded{color:var(--gold-deep)}
+/* Miniatura del video: un fotograma sacado en el navegador al subirlo o, si no, la que
+   genera Drive. Mientras Drive la prepara, la imagen se oculta y queda el cartel. */
+.media img.video-thumb.thumb-wait{display:none}
+.media .video-badge{position:absolute;top:50%;left:50%;width:46px;height:46px;margin:-23px 0 0 -23px;
+  border-radius:50%;background:rgba(26,30,57,.6);color:#fff;display:grid;place-items:center;pointer-events:none;z-index:1}
+.media .video-badge svg{width:24px;height:24px}
+.media img.video-thumb.thumb-wait ~ .video-badge{display:none}
 
 /* Botón de ampliar de cualquier archivo multimedia */
 .media-zoom,.media-dl{position:absolute;bottom:8px;width:32px;height:32px;border-radius:50%;
@@ -6557,6 +6564,38 @@ async function requestDriveAuth(){
   return out;
 }
 
+/* Fotogramas de los videos subidos en esta sesión, por id de archivo de Drive. Drive
+   tarda unos minutos en generar la miniatura de un video recién subido; mientras tanto
+   el recuadro muestra este fotograma, sacado del archivo antes de subirlo. Vive solo en
+   memoria: al recargar ya se usa la miniatura de Drive. */
+const videoPosters = new Map();
+
+/* Saca un fotograma (en el segundo 1, o al 10% si el video es más corto) como JPEG.
+   Devuelve null si el navegador no sabe decodificar el formato o tarda demasiado. */
+function videoFrame(file, maxW=640){
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement("video");
+    let done = false;
+    const finish = out => { if(done) return; done = true; clearTimeout(timer); URL.revokeObjectURL(url); v.removeAttribute("src"); v.load(); resolve(out); };
+    const timer = setTimeout(() => finish(null), 10000);
+    v.muted = true; v.playsInline = true; v.preload = "auto";
+    v.onloadedmetadata = () => { v.currentTime = Math.min(1, (v.duration || 0) * 0.1); };
+    v.onseeked = () => {
+      try{
+        const scale = Math.min(1, maxW / (v.videoWidth || maxW));
+        const c = document.createElement("canvas");
+        c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
+        if(!c.width || !c.height) return finish(null);
+        c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+        finish(c.toDataURL("image/jpeg", .8));
+      }catch(e){ finish(null); }
+    };
+    v.onerror = () => finish(null);
+    v.src = url;
+  });
+}
+
 /* Convierte un File en la URL final que se guarda en la pieza.
    Imágenes: se comprimen y, si Drive está activo y autorizado, se suben y se guarda el
    link; si no, se guarda la imagen embebida en este dispositivo.
@@ -6574,7 +6613,12 @@ function fileToMediaUrl(f, auth, kind){
       }
       try{
         toast("Subiendo video a Google Drive… puede tardar.", "upload");
-        resolve(await uploadBlobToDrive(auth.token, f, f.name || `video-${Date.now()}.mp4`, true));
+        const frame = videoFrame(f);
+        const url = await uploadBlobToDrive(auth.token, f, f.name || `video-${Date.now()}.mp4`, true);
+        const poster = await frame;
+        const fileId = extractDriveFileId(url);
+        if(poster && fileId) videoPosters.set(fileId, poster);
+        resolve(url);
       }catch(e){
         console.warn("No se pudo subir el video a Google Drive", e);
         toast("No se pudo subir el video a Google Drive.", "alert", true);
@@ -6711,8 +6755,8 @@ function statusSelect(coll, id, value){
 }
 /* kind:"video" cambia lo que se acepta al subir y cómo se muestra lo ya cargado. Los
    videos viven en Google Drive y se guardan como link /preview, que Drive sirve dentro
-   de un iframe; por eso no se pueden dibujar con <img> ni <video> y en el recuadro se
-   muestra un cartel con el botón de ampliar. */
+   de un iframe; por eso el recuadro no reproduce el video: muestra su miniatura (ver
+   videoPosters) y el botón de ampliar lo abre en el reproductor de Drive. */
 function mediaBox({coll, id, field, src, ratio="ratio-45", title="Subir imagen", hint="", kind="image"}){
   const isVideo = kind === "video";
   const zoomTitle = esc(title);
@@ -6724,11 +6768,15 @@ function mediaBox({coll, id, field, src, ratio="ratio-45", title="Subir imagen",
       ${hint ? `<small>${esc(hint)}</small>` : ""}
     </div>`;
   }else if(isVideo){
+    const fileId = extractDriveFileId(src);
+    const thumb = fileId ? (videoPosters.get(fileId) || driveVideoThumb(fileId)) : "";
     inner = `<div class="ph video-loaded">
       <svg><use href="#i-play"/></svg>
       <div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase">Video cargado</div>
-      <small>Amplía para reproducirlo</small>
-    </div>`;
+      <small>${thumb ? "Drive está preparando la miniatura · amplía para reproducirlo" : "Amplía para reproducirlo"}</small>
+    </div>
+    ${thumb ? `<img class="video-thumb" data-video-thumb="${esc(fileId)}" src="${thumb}" alt="" loading="lazy">
+    <span class="video-badge"><svg><use href="#i-play"/></svg></span>` : ""}`;
   }else{
     inner = `<img src="${src}" alt="">`;
   }
@@ -6738,6 +6786,26 @@ function mediaBox({coll, id, field, src, ratio="ratio-45", title="Subir imagen",
     <button type="button" class="media-zoom" data-zoom data-src="${esc(src)}" data-mkind="${kind}" data-title="${zoomTitle}" title="Ver en pantalla completa"><svg><use href="#i-expand"/></svg></button>` : ""}
   </div>`;
 }
+function driveVideoThumb(fileId, attempt=0){
+  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w640${attempt ? "&r=" + attempt : ""}`;
+}
+/* Si Drive todavía no tiene la miniatura de un video (recién subido, o aún procesándose),
+   la imagen falla: se oculta para que se vea el cartel y se vuelve a pedir cada 30 s,
+   hasta 10 veces, mientras el recuadro siga en pantalla. */
+document.addEventListener("error", e => {
+  const img = e.target;
+  if(!(img instanceof HTMLImageElement) || !img.dataset.videoThumb) return;
+  img.classList.add("thumb-wait");
+  const attempt = Number(img.dataset.attempt || 0) + 1;
+  if(attempt > 10) return;
+  img.dataset.attempt = attempt;
+  setTimeout(() => { if(img.isConnected) img.src = driveVideoThumb(img.dataset.videoThumb, attempt); }, 30000);
+}, true);
+document.addEventListener("load", e => {
+  const img = e.target;
+  if(img instanceof HTMLImageElement && img.dataset.videoThumb) img.classList.remove("thumb-wait");
+}, true);
+
 function field(labelText, icon, inner, timing=""){
   return `<div class="field"><div class="label"><svg><use href="#i-${icon}"/></svg>${esc(labelText)}${
     timing ? `<span class="timing">${esc(timing)}</span>` : ""}</div>${inner}</div>`;
