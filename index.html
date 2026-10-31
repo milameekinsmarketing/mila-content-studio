@@ -655,6 +655,12 @@ html.detalle-abierto{overflow:hidden}
 .redes-val.vacio{color:var(--gold-deep)}
 .redes-val img{width:26px;height:26px;border-radius:5px;object-fit:cover;flex:none}
 .redes-nota{font-size:11px;color:var(--muted)}
+.redes-vol{display:flex;flex-wrap:wrap;gap:6px 18px;padding:2px 4px 4px 144px;font-size:11.5px;color:var(--muted)}
+.redes-vol label{display:flex;align-items:center;gap:8px}
+.redes-vol input{width:110px;accent-color:var(--gold-deep)}
+.redes-vol b{font-weight:500;color:var(--navy);min-width:32px}
+@media (max-width:700px){.redes-vol{padding-left:4px}}
+.sel-mas{align-self:center;margin-top:4px}
 .sel-modal{max-width:560px;text-align:left}
 .sel-buscar{margin:6px 0 12px}
 .sel-lista{max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:6px}
@@ -8495,8 +8501,31 @@ function seleccionHTML(coll, it, campo, etiqueta, vacio){
         <span class="redes-val">${img ? `<img src="${esc(img)}" alt="">` : ""}<b>${esc(titulo)}</b>${sub ? ` · ${esc(sub)}` : ""}</span>
       </button>
       <button type="button" class="icon-btn lock-viewer" data-quitar-sel="${campo}" data-coll="${coll}" data-id="${it.id}" title="Quitar"><svg><use href="#i-x"/></svg></button>
-    </div>`;
+    </div>${campo === "musicaIg" ? volumenesHTML(coll, it) : ""}`;
 }
+/* Instagram deja fijar el volumen de la canción y el de la voz del video, no el tramo
+   de la canción: su API no tiene inicio ni fin. Por defecto la música va baja para que
+   se entienda lo que Mila dice. */
+const VOL_DEF = {audioVolume:30, videoVolume:100};
+function volumenesHTML(coll, it){
+  const v = it.musicaIg;
+  const slider = (campo, etiqueta) => {
+    const val = v[campo] ?? VOL_DEF[campo];
+    return `<label>${etiqueta}<input type="range" min="0" max="100" step="5" value="${val}" class="lock-viewer"
+      data-vol="${campo}" data-coll="${coll}" data-id="${it.id}"><b>${val}%</b></label>`;
+  };
+  return `<div class="redes-vol">${slider("audioVolume", "Volumen de la canción")}${slider("videoVolume", "Volumen del video (voz)")}</div>`;
+}
+document.addEventListener("input", e => {
+  const r = e.target.closest?.("[data-vol]");
+  if(!r) return;
+  if(!guard()){ return; }
+  const it = find(r.dataset.coll, r.dataset.id);
+  if(!it || !it.musicaIg) return;
+  it.musicaIg[r.dataset.vol] = Number(r.value);
+  r.nextElementSibling.textContent = r.value + "%";
+  touch();
+});
 function paraRedesHTML(coll, it){
   return `<div class="para-redes">
     <div class="label"><svg><use href="#i-feed"/></svg> Para redes</div>
@@ -8508,7 +8537,7 @@ function paraRedesHTML(coll, it){
 }
 
 const SELECTORES = {
-  musicaIg:     {titulo:"Música para Instagram", placeholder:"Busca una canción o artista", accion:"musica-ig", buscar:true},
+  musicaIg:     {titulo:"Música para Instagram", placeholder:"Busca una canción o artista", accion:"musica-ig", buscar:true, sugerir:true},
   musicaTiktok: {titulo:"Música para TikTok", placeholder:"Filtrar las tendencias", accion:"musica-tiktok", buscar:false},
   ubicacion:    {titulo:"Ubicación", placeholder:"Ej.: Raleigh, North Carolina", accion:"ubicacion", buscar:true}
 };
@@ -8561,41 +8590,49 @@ function abrirSelector(campo, coll, id){
       el.src = el.dataset.src = oir.dataset.oir; el.play().catch(() => toast("No se pudo reproducir la muestra.", "alert"));
       return;
     }
+    if(e.target.closest("[data-mas]")){ e.target.closest("[data-mas]").textContent = "Cargando…"; cargar(ultimaQ, true); return; }
     const pick = e.target.closest("[data-pick]");
     if(pick){
       const it = find(coll, id); if(!it) return;
-      it[campo] = resultados[Number(pick.dataset.pick)].guardar;
+      it[campo] = {...resultados[Number(pick.dataset.pick)].guardar, ...(campo === "musicaIg" ? VOL_DEF : {})};
       touch(); host.innerHTML = ""; render();
       toast(`${cfg.titulo}: ${it[campo].title || it[campo].name}`, "check");
     }
   };
-  let resultados = [], todos = [];
-  const pintar = lista => {
+  let resultados = [], todos = [], cursor = "", ultimaQ = "";
+  const pintar = (lista, titulo = "") => {
     resultados = lista;
-    $("#selLista").innerHTML = lista.length ? lista.map((r, i) => `
+    $("#selLista").innerHTML = (titulo && lista.length ? `<p class="sel-msg">${titulo}</p>` : "") + (lista.length ? lista.map((r, i) => `
       <div class="sel-item">
         <span class="sel-img">${r.img ? `<img src="${esc(r.img)}" alt="">` : `<svg><use href="#${campo === "ubicacion" ? "i-pin" : "i-play"}"/></svg>`}</span>
         <span class="sel-txt"><b>${esc(r.titulo || "")}</b><small>${esc(r.sub || "")}</small></span>
         ${r.audio ? `<button type="button" class="btn btn-ghost btn-sm icon-only" data-oir="${esc(r.audio)}" title="Escuchar"><svg><use href="#i-play"/></svg></button>` : ""}
         <button type="button" class="btn btn-gold btn-sm" data-pick="${i}">Elegir</button>
-      </div>`).join("") : `<p class="sel-msg">Sin resultados.</p>`;
+      </div>`).join("") : `<p class="sel-msg">${ultimaQ || !cfg.sugerir ? "Sin resultados." : "Instagram no mandó sugerencias. Escribe una canción o un artista y presiona Enter."}</p>`)
+      + (cursor ? `<button type="button" class="btn btn-ghost btn-sm sel-mas" data-mas>Ver más</button>` : "");
   };
-  const cargar = async q => {
-    $("#selLista").innerHTML = `<p class="sel-msg">Buscando…</p>`;
+  const titulo = () => cfg.sugerir && !ultimaQ ? "Sugerencias de Instagram" : "";
+  const cargar = async (q, mas = false) => {
+    if(!mas){ ultimaQ = q; cursor = ""; $("#selLista").innerHTML = `<p class="sel-msg">${q || !cfg.sugerir ? "Buscando…" : "Cargando sugerencias de Instagram…"}</p>`; }
     try{
-      const res = await llamarMetricool({accion: cfg.accion, blogId: brandById(activeBrandId).metricoolBlogId, q});
-      todos = normalizarResultados(campo, res.data);
-      pintar(todos);
+      const res = await llamarMetricool({accion: cfg.accion, blogId: brandById(activeBrandId).metricoolBlogId, q, cursor: mas ? cursor : ""});
+      const nuevos = normalizarResultados(campo, res.data);
+      todos = mas ? [...todos, ...nuevos] : nuevos;
+      cursor = (res.data && res.data.musicNextCursor) || "";
+      pintar(todos, titulo());
     }catch(e){
-      $("#selLista").innerHTML = `<p class="sel-msg">No se pudo consultar Metricool: ${esc(e.message)}</p>`;
+      $("#selLista").innerHTML = `<p class="sel-msg">${/TikTok Business/i.test(e.message)
+        ? "TikTok solo da su música a cuentas <b>TikTok Business</b>. En Metricool, la cuenta de TikTok de esta marca está conectada como cuenta personal: hay que pasarla a Business en la app de TikTok y volver a conectarla en Metricool."
+        : `No se pudo consultar Metricool: ${esc(e.message)}`}</p>`;
     }
   };
   const q = $("#selQ");
   q.focus();
   q.onkeydown = e => {
     if(e.key !== "Enter") return;
-    if(cfg.buscar){ if(q.value.trim()) cargar(q.value.trim()); }
+    if(cfg.buscar){ if(q.value.trim() || cfg.sugerir) cargar(q.value.trim()); }
   };
+  if(cfg.sugerir) cargar("");
   if(!cfg.buscar){
     q.oninput = () => { const f = q.value.trim().toLowerCase(); pintar(todos.filter(r => `${r.titulo} ${r.sub}`.toLowerCase().includes(f))); };
     cargar("");

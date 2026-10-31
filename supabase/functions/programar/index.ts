@@ -127,7 +127,7 @@ Deno.serve(async (req) => {
     const {
       accion, id, blogId, texto = "", media = [], videos = [], redes = [],
       fecha, zona = "America/New_York", borrador = false, tipoInstagram, tipoFacebook,
-      q = "", ubicacion, audioIg, musicaTiktok, portada,
+      q = "", cursor = "", ubicacion, audioIg, musicaTiktok, portada,
     } = await req.json();
 
     if (!blogId) return responder({ error: "Falta el blogId de la marca." }, 400);
@@ -141,9 +141,12 @@ Deno.serve(async (req) => {
     }
     // Catálogos para elegir desde la app: música de Instagram, canciones en tendencia
     // de TikTok y lugares (Instagram y Facebook usan los lugares de Facebook).
+    // Sin texto de búsqueda, Instagram devuelve sus sugerencias.
     if (accion === "musica-ig") {
-      const r = await metricool(
-        `/v2/scheduler/catalogs/instagram/audio?searchQuery=${encodeURIComponent(String(q))}&limit=25`, blogId);
+      const ruta = new URLSearchParams({ limit: "25" });
+      if (q) ruta.set("searchQuery", String(q));
+      if (cursor) ruta.set("musicCursor", String(cursor));
+      const r = await metricool(`/v2/scheduler/catalogs/instagram/audio?${ruta}`, blogId);
       return responder({ ok: true, data: r?.data ?? r });
     }
     if (accion === "musica-tiktok") {
