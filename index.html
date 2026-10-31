@@ -7734,6 +7734,7 @@ function viewStories(q=""){
     <div class="actions">
       <button class="btn btn-ghost lock-viewer" data-action="new" data-coll="stories"><svg><use href="#i-plus"/></svg> Nueva historia</button>
       <button class="btn btn-ghost lock-viewer" data-action="bulk-stories" title="Elige o arrastra muchas fotos a la vez: cada una se convierte en una historia de este mes"><svg><use href="#i-upload"/></svg> Subir varias fotos</button>
+      <button class="btn btn-ghost lock-viewer" data-action="drive-stories" title="Conecta las fotos que ya están en la carpeta de Google Drive con las historias de este mes, por su número"><svg><use href="#i-down"/></svg> Traer fotos de Drive</button>
       <button class="btn btn-ghost lock-viewer" data-action="tidy-stories" title="Pone las historias con foto de este mes en orden (Sold-001, Sold-002…) y pasa a otro mes las que no tienen foto"><svg><use href="#i-filter"/></svg> Ordenar fotos</button>
       <button class="btn btn-gold lock-viewer" data-action="save"><svg><use href="#i-save"/></svg> Guardar Cambios</button>
     </div>
@@ -8919,8 +8920,10 @@ const ORDINALES = ["primera","segunda","tercera","cuarta","quinta","sexta","sép
   "novena","décima","undécima","duodécima","decimotercera","decimocuarta","decimoquinta"];
 function numeroDeFoto(s){
   const idea = String(s.idea || "").trim().toLowerCase();
-  const m = idea.match(/\d+/);   // el primero: "Sold-016 (1)" es la 16
-  if(m) return Number(m[0]);
+  // solo en nombres de archivo ("sold-016", "sold_16 (1)"): un texto como "20% de
+  // down payment" no es la foto 20
+  const m = idea.match(/^[a-z]+[-_]?0*(\d+)/);
+  if(m) return Number(m[1]);
   const ord = ORDINALES.indexOf(idea.split(/\s+/)[0]);
   return ord >= 0 && /casa vendida/.test(idea) ? ord + 1 : Infinity;
 }
@@ -8978,6 +8981,139 @@ function tidyStoriesMonth(){
     touch(); persist(); render();
     toast(`${mes.label}: ${vivas.length} historias en orden${movidas}.`, "check");
   };
+}
+
+/* ---------- Traer fotos que ya están en Google Drive ----------
+   Si una subida masiva se cortó o quedó desordenada, las fotos ya están en la carpeta
+   de Drive: no hace falta subirlas otra vez. Se buscan por cómo empieza su nombre
+   ("Sold-") y cada una se conecta con la historia del mes que lleva su número
+   (numeroDeFoto): si existe, se le pone esa foto; si no, se crea. Después quedan en
+   orden de la 1 a la N. La app solo ve en Drive los archivos que ella misma subió
+   (permiso drive.file), que es justo lo que se busca. */
+async function driveListFolder(token, prefijo){
+  const q = `'${GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed=false and mimeType contains 'image/' and name contains '${prefijo.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+  const out = [];
+  let pageToken = "";
+  do{
+    const url = "https://www.googleapis.com/drive/v3/files?pageSize=1000&fields=nextPageToken,files(id,name,createdTime)"
+      + "&q=" + encodeURIComponent(q) + (pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : "");
+    const res = await fetch(url, {headers:{Authorization:`Bearer ${token}`}});
+    if(!res.ok) throw new Error("Drive respondió " + res.status);
+    const data = await res.json();
+    out.push(...(data.files || []));
+    pageToken = data.nextPageToken || "";
+  }while(pageToken);
+  return out;
+}
+
+async function storiesFromDrive(){
+  if(!guard()) return;
+  if(!driveEnabled()){ toast("Google Drive no está configurado en esta app.", "alert", true); return; }
+  // se pide en el clic del botón: aquí no hay selector de archivos que se pueda bloquear
+  const auth = await requestDriveAuth();
+  if(!auth.token){ toast(`No se pudo autorizar Google Drive${auth.reason ? " (" + auth.reason + ")" : ""}. Vuelve a intentarlo.`, "alert", true); return; }
+  const host = $("#modalHost");
+  const mes = activeContentMonth();
+  const buscar = async prefijo => {
+    host.innerHTML = `<div class="modal-bg"><div class="modal"><h3>Buscando en Drive…</h3><p>Fotos que empiezan por "${esc(prefijo)}".</p></div></div>`;
+    let files;
+    try{ files = await driveListFolder(auth.token, prefijo); }
+    catch(e){ console.warn("No se pudo leer la carpeta de Drive", e); host.innerHTML = ""; toast("No se pudo leer la carpeta de Google Drive.", "alert", true); return; }
+    // una foto por número: si se subió dos veces, vale la más reciente
+    const porNumero = new Map();
+    files.filter(f => f.name.toLowerCase().startsWith(prefijo.toLowerCase())).forEach(f => {
+      const n = numeroDeFoto({idea: f.name.replace(/\.[^.]+$/, "")});
+      if(!isFinite(n)) return;
+      const ya = porNumero.get(n);
+      if(!ya || (f.createdTime || "") > (ya.createdTime || "")) porNumero.set(n, f);
+    });
+    const fotos = [...porNumero.entries()].sort((a,b) => a[0] - b[0]);
+    if(!fotos.length){
+      host.innerHTML = "";
+      toast(`No hay fotos que empiecen por "${prefijo}" en la carpeta de Drive de la app. Súbelas con "Subir varias fotos".`, "alert", true);
+      return;
+    }
+    const delMes = S.stories.filter(s => s.monthId === mes.id);
+    const porNum = new Map();
+    delMes.forEach(s => { const n = numeroDeFoto(s); if(isFinite(n) && !porNum.has(n)) porNum.set(n, s); });
+    const huecos = [];
+    for(let i = 1; i <= fotos[fotos.length-1][0]; i++) if(!porNumero.has(i)) huecos.push(i);
+    const nuevas = fotos.filter(([n]) => !porNum.has(n)).length;
+    host.innerHTML = `
+      <div class="modal-bg" data-close>
+        <div class="modal modal-bulk" role="dialog" aria-modal="true">
+          <h3>${fotos.length} fotos encontradas en Drive</h3>
+          <p>Cada foto se conecta con la historia de ${esc(mes.label)} que lleva su número${nuevas ? `, y se crean ${nuevas} historias que faltaban` : ""}. Quedan en orden de la 1 a la ${fotos.length}.${huecos.length ? ` <b>Faltan en Drive:</b> ${huecos.map(n => `${esc(prefijo)}${String(n).padStart(3,"0")}`).join(", ")}.` : ""} No se sube nada de nuevo.</p>
+          <div class="bulk-grid">
+            ${fotos.map(([n, f]) => `<figure class="bulk-item">
+              <img src="https://drive.google.com/thumbnail?id=${encodeURIComponent(f.id)}&sz=w400" alt="" loading="lazy">
+              <figcaption><b>${esc(f.name.replace(/\.[^.]+$/, ""))}</b>${porNum.has(n) ? `→ ${esc(porNum.get(n).idea || "historia " + n)}` : "→ nueva"}</figcaption>
+            </figure>`).join("")}
+          </div>
+          <div class="row">
+            <button class="btn btn-ghost" data-close>Cancelar</button>
+            <button class="btn btn-gold" id="mYes">Conectar ${fotos.length}</button>
+          </div>
+        </div>
+      </div>`;
+    host.onclick = e => { if(e.target.hasAttribute("data-close")) host.innerHTML = ""; };
+    $("#mYes").onclick = () => { host.innerHTML = ""; conectarFotosDrive(fotos, mes.id, auth.token); };
+  };
+  host.innerHTML = `
+    <div class="modal-bg" data-close>
+      <div class="modal" role="dialog" aria-modal="true">
+        <h3>Traer fotos de Google Drive</h3>
+        <p>Busca en la carpeta de Drive de la app las fotos cuyo nombre empieza así, y las conecta con las historias de ${esc(mes.label)} por su número.</p>
+        <input class="fsel" id="drivePrefijo" value="Sold-" style="width:100%;margin:0 0 20px">
+        <div class="row">
+          <button class="btn btn-ghost" data-close>Cancelar</button>
+          <button class="btn btn-gold" id="mYes">Buscar</button>
+        </div>
+      </div>
+    </div>`;
+  host.onclick = e => { if(e.target.hasAttribute("data-close")) host.innerHTML = ""; };
+  $("#mYes").onclick = () => { const p = $("#drivePrefijo").value.trim(); if(p) buscar(p); };
+}
+
+async function conectarFotosDrive(fotos, monthId, token){
+  // por si alguna no quedó visible con el link: sin eso la miniatura sale rota
+  for(let i = 0; i < fotos.length; i++){
+    toast(`Preparando foto ${i+1} de ${fotos.length}…`, "upload");
+    try{
+      await fetch(`https://www.googleapis.com/drive/v3/files/${fotos[i][1].id}/permissions`, {
+        method:"POST", headers:{Authorization:`Bearer ${token}`, "Content-Type":"application/json"},
+        body: JSON.stringify({role:"reader", type:"anyone"})
+      });
+    }catch(e){ console.warn("No se pudo compartir", fotos[i][1].name, e); }
+  }
+  const delMes = S.stories.filter(s => s.monthId === monthId);
+  const porNum = new Map();
+  delMes.forEach(s => { const n = numeroDeFoto(s); if(isFinite(n) && !porNum.has(n)) porNum.set(n, s); });
+  let maxOrder = Math.max(-1, ...S.stories.map(s => s.order ?? 0));
+  const top = Math.max(now(), ...S.stories.map(s => s.createdAt || 0));
+  let conectadas = 0, creadas = 0;
+  fotos.forEach(([n, f]) => {
+    const url = `https://drive.google.com/thumbnail?id=${f.id}&sz=w2000`;
+    const s = porNum.get(n);
+    if(s){ s.media = url; conectadas++; }
+    else{
+      S.stories.push({id:uid("story"), order:++maxOrder, monthId, rating:0, status:"draft", reviewed:false,
+        published:false, collapsed:false, designApproved:null, designNote:"", pillar:"patrimonio",
+        format:BULK_FILL_FORMAT, idea:f.name.replace(/\.[^.]+$/, ""), content:"", followup:"", note:"", media:url});
+      creadas++;
+    }
+  });
+  /* Todo el mes en orden, también las fotos que ya estaban y no aparecieron en Drive:
+     primero las que tienen foto según su número y detrás las que no tienen. La lista va
+     de más reciente a más antigua, así que la foto 1 lleva la fecha más nueva. */
+  const mesAhora = S.stories.filter(s => s.monthId === monthId).map((s, i) => ({s, i, n: numeroDeFoto(s)}));
+  mesAhora.sort((a,b) => (!a.s.media - !b.s.media) || (a.s.media ? a.n - b.n : 0) || a.i - b.i)
+    .forEach((x, i) => { x.s.createdAt = top - i; });
+  reindex("stories");
+  logActivity("ok", `<b>Fotos traídas de Drive:</b> ${conectadas} conectadas y ${creadas} historias nuevas, en orden.`);
+  touch(); persist(); render();
+  const vacias = S.stories.filter(s => s.monthId === monthId && !s.media).length;
+  toast(`Listo: ${fotos.length} fotos en orden.${vacias ? ` Quedan ${vacias} historias sin foto al final: usa "Ordenar fotos" para pasarlas a otro mes.` : ""}`, "check");
 }
 
 function readAsDataURL(f){
@@ -9138,6 +9274,7 @@ document.addEventListener("click", async e => {
     if(a === "redo"){ redo(); return; }
     if(a === "new"){ createItem(act.dataset.coll); return; }
     if(a === "tidy-stories"){ tidyStoriesMonth(); return; }
+    if(a === "drive-stories"){ storiesFromDrive(); return; }
     if(a === "bulk-stories"){
       if(!guard()) return;
       // el selector se abre aquí, dentro del clic: si antes se pidiera el permiso de
