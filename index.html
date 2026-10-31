@@ -501,6 +501,7 @@ button.mover-op:hover{border-color:var(--gold);background:var(--gold-pale)}
    el navegador al subirlo o, si no, la que genera Drive. Los botones de descargar y
    ampliar suben arriba para no tapar la barra de controles del video. */
 .media .video-player,.media .video-inline{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;object-fit:contain;z-index:1;cursor:default}
+.media .video-player.is-vertical{object-fit:cover}
 .media.is-video .media-zoom,.media.is-video .media-dl{top:8px;bottom:auto;z-index:2}
 .media.is-video .media-zoom,.media.is-video .media-dl{opacity:1}
 .media .video-uploading{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -6508,7 +6509,7 @@ function openImageLightbox(src, title, kind){
   const host = $("#modalHost");
   const vid = kind === "video" && extractDriveFileId(src);
   const body = kind === "video"
-    ? (vid ? `<video class="lightbox-video video-player" data-video-id="${esc(vid)}" controls autoplay playsinline src="${esc(videoStreamUrl(vid))}" onclick="event.stopPropagation()"></video>`
+    ? (vid ? `<video class="lightbox-video video-player" data-video-id="${esc(vid)}" data-fuente="0" data-fuentes="${esc(JSON.stringify(videoSources(vid)))}" controls autoplay playsinline src="${esc(videoStreamUrl(vid))}" onclick="event.stopPropagation()"></video>`
            : `<iframe class="lightbox-video" src="${esc(src)}" allow="autoplay; fullscreen" allowfullscreen onclick="event.stopPropagation()"></iframe>`)
     : `<img src="${src}" alt="${esc(title || "")}" onclick="event.stopPropagation()">`;
   host.innerHTML = `
@@ -6904,19 +6905,38 @@ function driveVideoThumb(fileId){
 }
 /* Reproductor del navegador dentro de la tarjeta, con sus controles (play, tiempo,
    volumen, pantalla completa) y la miniatura de portada. El archivo se pide directo a
-   Drive (la carpeta es pública); si Drive no lo entrega como video — pasa con archivos
-   de más de ~100 MB, donde pide confirmar la descarga — se cambia por el reproductor
-   de Drive, también dentro de la tarjeta. */
-function videoStreamUrl(fileId){
-  return videoLocal.get(fileId) || `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+   Drive (la carpeta es pública), probando en orden: la descarga de drive.usercontent
+   con confirm=t, que se salta el aviso de "no se pudo analizar en busca de virus" que
+   Drive pone a los archivos de más de ~100 MB; y el enlace clásico uc?export=download.
+   Solo si ninguno entrega el video se cambia por el reproductor de Drive, también
+   dentro de la tarjeta, que acomoda peor los videos verticales. */
+function videoSources(fileId){
+  const local = videoLocal.get(fileId);
+  if(local) return [local];
+  const id = encodeURIComponent(fileId);
+  return [`https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`,
+          `https://drive.google.com/uc?export=download&id=${id}`];
 }
+function videoStreamUrl(fileId){ return videoSources(fileId)[0]; }
 function videoPlayerHTML(fileId, poster){
-  return `<video class="video-player" data-video-id="${esc(fileId)}" controls playsinline preload="metadata"
-    ${poster ? `poster="${esc(poster)}"` : ""} src="${esc(videoStreamUrl(fileId))}"></video>`;
+  const fuentes = videoSources(fileId);
+  return `<video class="video-player" data-video-id="${esc(fileId)}" data-fuente="0" data-fuentes="${esc(JSON.stringify(fuentes))}" controls playsinline preload="metadata"
+    ${poster ? `poster="${esc(poster)}"` : ""} src="${esc(fuentes[0])}"></video>`;
 }
+/* Vertical (más alto que ancho) llena la tarjeta 9:16 sin franjas; horizontal se ve
+   entero, con franjas arriba y abajo, para no recortarle los lados. */
+document.addEventListener("loadedmetadata", e => {
+  const v = e.target;
+  if(v instanceof HTMLVideoElement && v.classList.contains("video-player"))
+    v.classList.toggle("is-vertical", v.videoHeight > v.videoWidth);
+}, true);
 document.addEventListener("error", e => {
   const v = e.target;
   if(!(v instanceof HTMLVideoElement) || !v.classList.contains("video-player") || v.dataset.fallback) return;
+  let fuentes = [];
+  try{ fuentes = JSON.parse(v.dataset.fuentes || "[]"); }catch(_){}
+  const sig = Number(v.dataset.fuente || 0) + 1;
+  if(sig < fuentes.length){ v.dataset.fuente = sig; v.src = fuentes[sig]; return; }
   v.dataset.fallback = "1";
   v.insertAdjacentHTML("afterend", `<iframe class="${v.classList.contains("lightbox-video") ? "lightbox-video" : "video-inline"}" src="https://drive.google.com/file/d/${encodeURIComponent(v.dataset.videoId)}/preview" allow="autoplay; fullscreen" allowfullscreen></iframe>`);
   v.remove();
