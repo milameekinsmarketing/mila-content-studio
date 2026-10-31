@@ -607,9 +607,14 @@ button.mover-op:hover{border-color:var(--gold);background:var(--gold-pale)}
 .tile-vacio{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
   color:var(--muted);font-size:12px}
 .tile-vacio svg{width:26px;height:26px}
-.tile-play{position:absolute;right:8px;bottom:8px;width:30px;height:30px;border-radius:50%;background:rgba(14,42,74,.7);
-  display:grid;place-items:center;color:#fff}
-.tile-play svg{width:18px;height:18px}
+.tile-play{position:absolute;right:8px;bottom:8px;width:38px;height:38px;border-radius:50%;background:rgba(14,42,74,.75);
+  display:grid;place-items:center;color:#fff;border:0;cursor:pointer;transition:transform .15s,background .15s;z-index:2}
+.tile-play:hover{background:var(--navy);transform:scale(1.08)}
+.tile-play svg{width:20px;height:20px}
+.tile-media .drive-frame{position:absolute;inset:0;overflow:hidden;background:#000}
+.tile-media .drive-frame iframe{position:absolute;top:0;left:0;border:0;transform-origin:0 0}
+.tile-media .video-player{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain}
+.tile-media .video-player.is-vertical{object-fit:cover}
 .tile-titulo{font-size:13px;font-weight:500;color:var(--navy);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;
   -webkit-box-orient:vertical;overflow:hidden}
 .tile-chips{display:flex;flex-wrap:wrap;gap:5px}
@@ -8424,7 +8429,7 @@ function tileCardHTML(coll, it, i){
     <div class="story-media">
       <div class="tile-media ${ratio}">
         ${src ? `<img src="${esc(src)}" alt="" loading="lazy">` : `<div class="tile-vacio"><svg><use href="#${coll === "reels" ? "i-reel" : "i-post"}"/></svg>Sin ${coll === "reels" ? "portada" : "imagen"}</div>`}
-        ${coll === "reels" && it.video ? `<span class="tile-play"><svg><use href="#i-play"/></svg></span>` : ""}
+        ${coll === "reels" && extractDriveFileId(it.video || "") ? `<button type="button" class="tile-play" data-tile-play="${esc(extractDriveFileId(it.video))}" title="Reproducir aquí"><svg><use href="#i-play"/></svg></button>` : ""}
       </div>
     </div>
     <div class="story-body tile-body">
@@ -10071,8 +10076,17 @@ document.addEventListener("click", async e => {
   if(mm){ e.preventDefault(); abrirMoverMes(mm.dataset.coll, mm.dataset.id); return; }
 
   // tarjetas de reels y posts → ficha completa
+  // ▶ de la tarjeta: el video se reproduce ahí mismo, sin abrir la ficha
+  const tplay = t.closest("[data-tile-play]");
+  if(tplay){
+    const caja = tplay.closest(".tile-media");
+    const img = caja.querySelector("img");
+    caja.innerHTML = videoPlayerHTML(tplay.dataset.tilePlay, img ? img.src : "");
+    caja.querySelector("video")?.play().catch(() => {});
+    return;
+  }
   const tile = t.closest("[data-abrir]");
-  if(tile && !t.closest("button, a, select, input, textarea")){ abrirDetalle(tile.dataset.coll, tile.dataset.id); return; }
+  if(tile && !t.closest("button, a, select, input, textarea, video, .drive-frame")){ abrirDetalle(tile.dataset.coll, tile.dataset.id); return; }
   if(t.matches("[data-detalle-cerrar]") || t.closest("button[data-detalle-cerrar]")){ cerrarDetalle(); return; }
   const dnav = t.closest("[data-detalle-nav]");
   if(dnav){ moverDetalle(Number(dnav.dataset.detalleNav)); return; }
