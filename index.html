@@ -7736,6 +7736,7 @@ function viewStories(q=""){
     </div>
     <div class="actions">
       <button class="btn btn-ghost lock-viewer" data-action="new" data-coll="stories"><svg><use href="#i-plus"/></svg> Nueva historia</button>
+      <button class="btn btn-ghost lock-viewer" data-action="bulk-stories" title="Elige o arrastra muchas fotos a la vez: cada una se convierte en una historia de este mes"><svg><use href="#i-upload"/></svg> Subir varias fotos</button>
       <button class="btn btn-gold lock-viewer" data-action="save"><svg><use href="#i-save"/></svg> Guardar Cambios</button>
     </div>
   </div>
@@ -8862,6 +8863,78 @@ function createItem(coll){
   toast(`${label} creado`, "check");
 }
 
+/* ---------- Subida masiva de historias ----------
+   Cada foto se convierte en una historia nueva del mes que se está viendo, en el orden
+   de los nombres de archivo (Sold-001, Sold-002…). No llena historias que ya existen:
+   esas tienen su propio contenido planificado. Las fotos van solo a Google Drive —
+   noventa imágenes embebidas harían pesar el workspace decenas de megas. */
+function prepareBulkStories(fileList){
+  const files = Array.from(fileList || []).filter(f => /^image\//.test(f.type))
+    .sort((a,b) => a.name.localeCompare(b.name, "es", {numeric:true}));
+  const skipped = (fileList ? fileList.length : 0) - files.length;
+  if(!files.length){ toast("No hay imágenes para subir.", "alert", true); return; }
+  const mes = activeContentMonth();
+  confirmDialog(`¿Subir ${files.length} historias a ${mes.label}?`,
+    `Se crea una historia nueva por cada foto, en orden (${files[0].name}${files.length > 1 ? ` … ${files[files.length-1].name}` : ""}). Las historias que ya existen no se tocan.${skipped ? ` ${skipped} archivo(s) que no son imágenes se dejan fuera.` : ""} Mantén esta pestaña abierta hasta que termine.`,
+    () => bulkUploadStories(files, mes.id), `Subir ${files.length}`);
+}
+
+function readAsDataURL(f){
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = () => rej(fr.error);
+    fr.readAsDataURL(f);
+  });
+}
+
+let bulkUploading = false;
+async function bulkUploadStories(files, monthId){
+  if(bulkUploading){ toast("Ya hay una subida en curso.", "alert", true); return; }
+  // se pide aquí, en el clic de confirmar, que es un gesto nuevo del usuario
+  const auth = await requestDriveAuth();
+  if(!auth.token){
+    toast(`Las fotos se suben a Google Drive y no se pudo autorizar${auth.reason ? " (" + auth.reason + ")" : ""}. Vuelve a intentarlo.`, "alert", true);
+    return;
+  }
+  bulkUploading = true;
+  const brand = activeBrandId; // si se cambia de marca a mitad, se detiene: S ya es otra marca
+  // la lista va de más reciente a más antigua: para que las nuevas queden después de
+  // lo ya planificado del mes, y en el orden de los archivos, la primera foto lleva una
+  // fecha justo anterior a la historia más antigua del mes y cada siguiente, una antes
+  const delMes = S.stories.filter(s => s.monthId === monthId).map(s => s.createdAt || 0);
+  const base = (delMes.length ? Math.min(...delMes) : now()) - 1;
+  let maxOrder = Math.max(-1, ...S.stories.map(s => s.order ?? 0));
+  let ok = 0;
+  const failed = [];
+  try{
+    for(let i = 0; i < files.length; i++){
+      const f = files[i];
+      if(activeBrandId !== brand){ failed.push(...files.slice(i).map(x => x.name)); break; }
+      toast(`Subiendo historia ${i+1} de ${files.length}…`, "upload");
+      try{
+        const url = await uploadToDriveWithToken(auth.token, await compress(await readAsDataURL(f)), f.name);
+        S.stories.push({id:uid("story"), createdAt:base - i, order:++maxOrder, monthId,
+          rating:0, status:"draft", reviewed:false, published:false, collapsed:false,
+          designApproved:null, designNote:"", pillar:"educacion", format:"Foto",
+          idea:f.name.replace(/\.[^.]+$/, ""), content:"", followup:"", note:"", media:url});
+        ok++;
+        touch(); render();
+      }catch(e){
+        console.warn("No se pudo subir a Google Drive", f.name, e);
+        failed.push(f.name);
+      }
+    }
+  }finally{
+    bulkUploading = false;
+  }
+  logActivity(failed.length ? "alert" : "ok", `<b>Subida masiva:</b> ${ok} historia(s) creadas${failed.length ? `, ${failed.length} sin subir (${esc(failed.join(", "))})` : ""}.`);
+  persist(true);
+  toast(failed.length
+    ? `${ok} historias creadas. No se pudieron subir ${failed.length}: ${failed.join(", ")}. Vuelve a subir solo esas.`
+    : `Listo: ${ok} historias creadas.`, failed.length ? "alert" : "check", !!failed.length);
+}
+
 function deleteItem(coll, id){
   const it = find(coll, id); if(!it) return;
   confirmDialog("¿Eliminar esta pieza?", `"${it.title || it.name}" se quitará del plan y de cualquier espacio del Feed Preview.`, () => {
@@ -8955,6 +9028,16 @@ document.addEventListener("click", async e => {
     if(a === "undo"){ undo(); return; }
     if(a === "redo"){ redo(); return; }
     if(a === "new"){ createItem(act.dataset.coll); return; }
+    if(a === "bulk-stories"){
+      if(!guard()) return;
+      // el selector se abre aquí, dentro del clic: si antes se pidiera el permiso de
+      // Drive, el popup de Google consumiría el gesto y Chrome bloquearía el selector
+      const inp = document.createElement("input");
+      inp.type = "file"; inp.accept = "image/*"; inp.multiple = true;
+      inp.onchange = () => prepareBulkStories(inp.files);
+      inp.click();
+      return;
+    }
     if(a === "create-menu"){ openCreateMenu(); return; }
     if(a === "export"){ exportJSON(); return; }
     if(a === "import"){ importJSON(); return; }
@@ -9394,6 +9477,14 @@ document.addEventListener("drop", async e => {
   e.preventDefault();
   clearFileOver();
   const box = e.target.closest("[data-upload]");
+  // en Historias, soltar varias fotos a la vez (o una fuera de un recuadro) es la
+  // subida masiva: cada foto, una historia nueva
+  const dropped = e.dataTransfer.files || [];
+  if(S.ui.view === "stories" && (dropped.length > 1 || (!box && dropped.length))){
+    if(!guard()) return;
+    prepareBulkStories(dropped);
+    return;
+  }
   if(!box) return;
   if(!guard()) return;
   const f = e.dataTransfer.files && e.dataTransfer.files[0];
