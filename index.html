@@ -497,21 +497,18 @@ button.mover-op:hover{border-color:var(--gold);background:var(--gold-pale)}
 /* Recuadro con un video ya cargado */
 .media.is-video.has-img{border-style:solid;border-color:var(--line);background:#EFE7DA}
 .media .ph.video-loaded{color:var(--gold-deep)}
-/* Miniatura del video: un fotograma sacado en el navegador al subirlo o, si no, la que
-   genera Drive. Mientras Drive la prepara, la imagen se oculta y queda el cartel; el
-   botón de reproducir está siempre, porque el reproductor de Drive no espera a la
-   miniatura. */
-.media img.video-thumb.thumb-wait{display:none}
-.media .video-badge{position:absolute;top:50%;left:50%;width:46px;height:46px;margin:-23px 0 0 -23px;
-  border-radius:50%;background:rgba(26,30,57,.6);color:#fff;display:grid;place-items:center;pointer-events:none;z-index:1}
-.media .video-badge svg{width:24px;height:24px}
-/* el botón de reproducir sí recibe clics: abre el reproductor de Drive dentro del recuadro */
-.media button.video-badge{border:0;padding:0;cursor:pointer;pointer-events:auto;transition:background .15s}
-.media button.video-badge:hover{background:rgba(26,30,57,.85)}
-.media .video-inline{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;z-index:2}
-.media .video-inline-close{position:absolute;top:8px;right:8px;z-index:3;width:30px;height:30px;border-radius:50%;
-  border:0;background:rgba(26,30,57,.75);color:#fff;font-size:18px;line-height:30px;cursor:pointer}
-.media .media-link{position:absolute;left:8px;top:8px;z-index:1;display:flex;align-items:center;gap:5px;
+/* Reproductor dentro del recuadro, con la miniatura de portada: un fotograma sacado en
+   el navegador al subirlo o, si no, la que genera Drive. Los botones de descargar y
+   ampliar suben arriba para no tapar la barra de controles del video. */
+.media .video-player,.media .video-inline{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;object-fit:contain;z-index:1;cursor:default}
+.media.is-video .media-zoom,.media.is-video .media-dl{top:8px;bottom:auto;z-index:2}
+.media.is-video .media-zoom,.media.is-video .media-dl{opacity:1}
+.media .video-uploading{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:8px;background:rgba(26,30,57,.82);color:#fff;font-size:12px;letter-spacing:.08em;text-transform:uppercase;padding:16px;cursor:default}
+.media .video-uploading b{font-size:22px;letter-spacing:0}
+.media .video-uploading .bar{width:80%;height:6px;border-radius:3px;background:rgba(255,255,255,.25);overflow:hidden}
+.media .video-uploading .bar i{display:block;height:100%;background:var(--gold-soft);transition:width .2s}
+.media .media-link{position:absolute;left:8px;top:8px;z-index:2;display:flex;align-items:center;gap:5px;
   padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.92);
   color:var(--navy);font-size:11px;cursor:pointer}
 .media .media-link svg{width:13px;height:13px}
@@ -1310,6 +1307,32 @@ function getDriveAccessToken(){
   });
 }
 
+/* Los videos pesan decenas o cientos de megas: la subida "multipart" de Drive está
+   pensada para archivos chicos y no dice cuánto lleva. La reanudable abre una sesión y
+   manda el archivo con XHR, que sí informa el avance para mostrarlo en la tarjeta. */
+async function uploadResumable(token, blob, metadata, onProgress){
+  const start = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8",
+               "X-Upload-Content-Type": blob.type || "application/octet-stream" },
+    body: JSON.stringify(metadata)
+  });
+  const session = start.ok && start.headers.get("Location");
+  if(!session) throw new Error("Drive no abrió la subida: " + start.status);
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", session);
+    xhr.upload.onprogress = e => { if(e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
+    xhr.onload = () => {
+      if(xhr.status >= 200 && xhr.status < 300){
+        try{ resolve(JSON.parse(xhr.responseText).id); }catch(e){ reject(e); }
+      }else reject(new Error("Drive upload failed: " + xhr.status));
+    };
+    xhr.onerror = () => reject(new Error("Se cortó la conexión subiendo el video"));
+    xhr.send(blob);
+  });
+}
+
 async function uploadToDriveWithToken(token, dataUrl, filename){
   return uploadBlobToDrive(token, await (await fetch(dataUrl)).blob(), filename, false);
 }
@@ -1318,18 +1341,23 @@ async function uploadToDriveWithToken(token, dataUrl, filename){
    endpoint /thumbnail, que se puede incrustar directo en un <img>; para los videos
    devuelve /preview, que es el único que Drive sirve reproducible (dentro de un iframe:
    los links de descarga directa no funcionan como src de <video>). */
-async function uploadBlobToDrive(token, blob, filename, asVideo){
+async function uploadBlobToDrive(token, blob, filename, asVideo, onProgress){
   const metadata = { name: filename, parents: [GOOGLE_DRIVE_FOLDER_ID] };
-  const form = new FormData();
-  form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
-  form.append("file", blob);
-  const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: form
-  });
-  if(!res.ok) throw new Error("Drive upload failed: " + res.status);
-  const { id } = await res.json();
+  let id;
+  if(asVideo){
+    id = await uploadResumable(token, blob, metadata, onProgress);
+  }else{
+    const form = new FormData();
+    form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
+    form.append("file", blob);
+    const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form
+    });
+    if(!res.ok) throw new Error("Drive upload failed: " + res.status);
+    ({ id } = await res.json());
+  }
   // hace el archivo visible con el link, para que se pueda usar como src de <img> sin sesión de Drive
   await fetch(`https://www.googleapis.com/drive/v3/files/${id}/permissions`, {
     method: "POST",
@@ -6478,8 +6506,10 @@ function openScheduleModal(coll, id){
 function openImageLightbox(src, title, kind){
   if(!src) return;
   const host = $("#modalHost");
+  const vid = kind === "video" && extractDriveFileId(src);
   const body = kind === "video"
-    ? `<iframe class="lightbox-video" src="${esc(src)}" allow="autoplay; fullscreen" allowfullscreen onclick="event.stopPropagation()"></iframe>`
+    ? (vid ? `<video class="lightbox-video video-player" data-video-id="${esc(vid)}" controls autoplay playsinline src="${esc(videoStreamUrl(vid))}" onclick="event.stopPropagation()"></video>`
+           : `<iframe class="lightbox-video" src="${esc(src)}" allow="autoplay; fullscreen" allowfullscreen onclick="event.stopPropagation()"></iframe>`)
     : `<img src="${src}" alt="${esc(title || "")}" onclick="event.stopPropagation()">`;
   host.innerHTML = `
     <div class="modal-bg lightbox-bg" data-close>
@@ -6577,6 +6607,42 @@ async function requestDriveAuth(){
    el recuadro muestra este fotograma, sacado del archivo antes de subirlo. Vive solo en
    memoria: al recargar ya se usa la miniatura de Drive. */
 const videoPosters = new Map();
+/* Copia local (blob:) de los videos subidos en esta sesión, por id de Drive: así el
+   video se reproduce en la tarjeta apenas termina de subir. */
+const videoLocal = new Map();
+/* Subidas de video en curso, por "coleccion|id|campo" → fracción subida (0 a 1). La
+   tarjeta muestra la barra mientras tanto, y no se deja cerrar la pestaña. */
+const videoUploads = new Map();
+function setUploadProgress(key, frac){
+  videoUploads.set(key, frac);
+  const [coll, id, field] = key.split("|");
+  const box = document.querySelector(`[data-upload][data-coll="${coll}"][data-id="${id}"][data-field="${field}"]`);
+  if(!box) return;
+  let ov = box.querySelector(".video-uploading");
+  if(!ov){ box.insertAdjacentHTML("beforeend", uploadOverlayHTML(frac)); ov = box.querySelector(".video-uploading"); }
+  ov.querySelector("b").textContent = Math.round(frac * 100) + "%";
+  ov.querySelector("i").style.width = (frac * 100) + "%";
+}
+function uploadOverlayHTML(frac){
+  return `<div class="video-uploading"><span>Subiendo a Drive</span><b>${Math.round(frac * 100)}%</b><div class="bar"><i style="width:${frac * 100}%"></i></div></div>`;
+}
+/* Sube el archivo de un recuadro y lo guarda en la pieza apenas termina, con avance
+   en la tarjeta si es un video. Lo usan el clic y el arrastre. */
+async function uploadIntoBox(coll, id, fld, kind, file, auth){
+  const key = `${coll}|${id}|${fld}`;
+  const video = kind === "video";
+  if(video){ if(videoUploads.has(key)){ toast("Ese video ya se está subiendo.", "alert", true); return; } setUploadProgress(key, 0); }
+  try{
+    const data = await fileToMediaUrl(file, auth, kind || "image", video ? f => setUploadProgress(key, f) : null);
+    if(!data) return;
+    applyUploadedImage(coll, id, fld, data);
+    touch(); persist(true);
+    toast(video ? "Video subido y conectado" : "Imagen adjuntada", "img");
+  }finally{
+    if(video) videoUploads.delete(key);
+    render();
+  }
+}
 
 /* Saca un fotograma (en el segundo 1, o al 10% si el video es más corto) como JPEG.
    Devuelve null si el navegador no sabe decodificar el formato o tarda demasiado. */
@@ -6609,7 +6675,7 @@ function videoFrame(file, maxW=640){
    link; si no, se guarda la imagen embebida en este dispositivo.
    Videos: van SIEMPRE a Drive. Un video embebido en el workspace lo haría pesar decenas
    de megas y rompería la sincronización, así que sin Drive no se acepta. */
-function fileToMediaUrl(f, auth, kind){
+function fileToMediaUrl(f, auth, kind, onProgress){
   const wantVideo = kind === "video";
   return new Promise(async resolve => {
     if(!f) return resolve(null);
@@ -6622,10 +6688,12 @@ function fileToMediaUrl(f, auth, kind){
       try{
         toast("Subiendo video a Google Drive… puede tardar.", "upload");
         const frame = videoFrame(f);
-        const url = await uploadBlobToDrive(auth.token, f, f.name || `video-${Date.now()}.mp4`, true);
+        const url = await uploadBlobToDrive(auth.token, f, f.name || `video-${Date.now()}.mp4`, true, onProgress);
         const poster = await frame;
         const fileId = extractDriveFileId(url);
         if(poster && fileId) videoPosters.set(fileId, poster);
+        // el archivo ya está en esta computadora: se reproduce desde aquí sin esperar a Drive
+        if(fileId) videoLocal.set(fileId, URL.createObjectURL(f));
         resolve(url);
       }catch(e){
         console.warn("No se pudo subir el video a Google Drive", e);
@@ -6672,12 +6740,17 @@ function applyUploadedImage(coll, id, f, data){
 }
 
 async function pickImage(kind="image"){
+  const picked = await pickFile(kind);
+  return picked ? fileToMediaUrl(picked.file, picked.auth, kind) : null;
+}
+/* Abre el selector y devuelve el archivo elegido junto con el permiso de Drive. */
+async function pickFile(kind="image"){
   const auth = await requestDriveAuth();
   return new Promise(resolve => {
     const inp = $("#filePicker");
     inp.value = "";
     inp.accept = kind === "video" ? "video/*" : "image/*";
-    inp.onchange = () => resolve(fileToMediaUrl(inp.files && inp.files[0], auth, kind));
+    inp.onchange = () => resolve(inp.files && inp.files[0] ? {file: inp.files[0], auth} : null);
     inp.click();
   });
 }
@@ -6778,19 +6851,19 @@ function mediaBox({coll, id, field, src, ratio="ratio-45", title="Subir imagen",
   }else if(isVideo){
     const fileId = extractDriveFileId(src);
     const thumb = fileId ? (videoPosters.get(fileId) || driveVideoThumb(fileId)) : "";
-    inner = `<div class="ph video-loaded">
+    inner = fileId ? videoPlayerHTML(fileId, thumb) : `<div class="ph video-loaded">
       <svg><use href="#i-play"/></svg>
       <div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase">Video cargado</div>
-      <small>${thumb ? "Drive está preparando la miniatura · pulsa ▶ para reproducirlo" : "Pulsa ▶ para reproducirlo"}</small>
-    </div>
-    ${thumb ? `<img class="video-thumb" data-video-thumb="${esc(fileId)}" src="${thumb}" alt="" loading="lazy">` : ""}
-    <button type="button" class="video-badge" data-play-inline data-src="${esc(src)}" title="Reproducir aquí"><svg><use href="#i-play"/></svg></button>`;
+      <small>Amplía para reproducirlo</small>
+    </div>`;
   }else{
     inner = `<img src="${src}" alt="">`;
   }
-  return `<div class="media ${ratio} ${src ? "has-img" : ""} ${isVideo ? "is-video" : ""}" data-upload data-kind="${kind}" data-coll="${coll}" data-id="${id}" data-field="${field}" title="Clic para ${src?"reemplazar":"subir"}">
+  const subiendo = isVideo && videoUploads.get(`${coll}|${id}|${field}`);
+  return `<div class="media ${ratio} ${src ? "has-img" : ""} ${isVideo ? "is-video" : ""}" data-upload data-kind="${kind}" data-coll="${coll}" data-id="${id}" data-field="${field}" title="${src && isVideo ? "" : `Clic para ${src?"reemplazar":"subir"}`}">
     ${inner}
-    ${isVideo ? `<button type="button" class="media-link lock-viewer" data-drive-link data-coll="${coll}" data-id="${id}" data-field="${field}" title="Conectar un video que ya está en Google Drive pegando su link"><svg><use href="#i-link"/></svg>Link de Drive</button>` : ""}
+    ${subiendo !== undefined && subiendo !== false ? uploadOverlayHTML(subiendo) : ""}
+    ${isVideo ? `<button type="button" class="media-link lock-viewer" data-drive-link data-coll="${coll}" data-id="${id}" data-field="${field}" title="Conectar un video que ya está en Google Drive pegando su link"><svg><use href="#i-link"/></svg>${src ? "" : "Link de Drive"}</button>` : ""}
     ${src ? `<button type="button" class="media-dl" data-media-dl data-src="${esc(src)}" title="Descargar archivo"><svg><use href="#i-down"/></svg></button>
     <button type="button" class="media-zoom" data-zoom data-src="${esc(src)}" data-mkind="${kind}" data-title="${zoomTitle}" title="Ver en pantalla completa"><svg><use href="#i-expand"/></svg></button>` : ""}
   </div>`;
@@ -6826,24 +6899,27 @@ function pedirLinkDrive({coll, id, field}){
     touch(); render(); toast("Video conectado", "check");
   };
 }
-function driveVideoThumb(fileId, attempt=0){
-  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w640${attempt ? "&r=" + attempt : ""}`;
+function driveVideoThumb(fileId){
+  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1000`;
 }
-/* Si Drive todavía no tiene la miniatura de un video (recién subido, o aún procesándose),
-   la imagen falla: se oculta para que se vea el cartel y se vuelve a pedir cada 30 s,
-   hasta 10 veces, mientras el recuadro siga en pantalla. */
+/* Reproductor del navegador dentro de la tarjeta, con sus controles (play, tiempo,
+   volumen, pantalla completa) y la miniatura de portada. El archivo se pide directo a
+   Drive (la carpeta es pública); si Drive no lo entrega como video — pasa con archivos
+   de más de ~100 MB, donde pide confirmar la descarga — se cambia por el reproductor
+   de Drive, también dentro de la tarjeta. */
+function videoStreamUrl(fileId){
+  return videoLocal.get(fileId) || `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+}
+function videoPlayerHTML(fileId, poster){
+  return `<video class="video-player" data-video-id="${esc(fileId)}" controls playsinline preload="metadata"
+    ${poster ? `poster="${esc(poster)}"` : ""} src="${esc(videoStreamUrl(fileId))}"></video>`;
+}
 document.addEventListener("error", e => {
-  const img = e.target;
-  if(!(img instanceof HTMLImageElement) || !img.dataset.videoThumb) return;
-  img.classList.add("thumb-wait");
-  const attempt = Number(img.dataset.attempt || 0) + 1;
-  if(attempt > 10) return;
-  img.dataset.attempt = attempt;
-  setTimeout(() => { if(img.isConnected) img.src = driveVideoThumb(img.dataset.videoThumb, attempt); }, 30000);
-}, true);
-document.addEventListener("load", e => {
-  const img = e.target;
-  if(img instanceof HTMLImageElement && img.dataset.videoThumb) img.classList.remove("thumb-wait");
+  const v = e.target;
+  if(!(v instanceof HTMLVideoElement) || !v.classList.contains("video-player") || v.dataset.fallback) return;
+  v.dataset.fallback = "1";
+  v.insertAdjacentHTML("afterend", `<iframe class="${v.classList.contains("lightbox-video") ? "lightbox-video" : "video-inline"}" src="https://drive.google.com/file/d/${encodeURIComponent(v.dataset.videoId)}/preview" allow="autoplay; fullscreen" allowfullscreen></iframe>`);
+  v.remove();
 }, true);
 
 function field(labelText, icon, inner, timing=""){
@@ -9473,23 +9549,8 @@ document.addEventListener("click", async e => {
     return;
   }
 
-  const playInline = t.closest("[data-play-inline]");
-  if(playInline){
-    const box = playInline.closest(".media");
-    const id = extractDriveFileId(playInline.dataset.src);
-    if(box && id){
-      box.querySelectorAll(".video-inline,.video-inline-close").forEach(x => x.remove());
-      box.insertAdjacentHTML("beforeend", `<iframe class="video-inline" src="https://drive.google.com/file/d/${encodeURIComponent(id)}/preview" allow="autoplay; fullscreen" allowfullscreen></iframe>
-        <button type="button" class="video-inline-close" data-play-stop title="Cerrar el video">×</button>`);
-    }
-    return;
-  }
-  const playStop = t.closest("[data-play-stop]");
-  if(playStop){
-    const box = playStop.closest(".media");
-    if(box) box.querySelectorAll(".video-inline,.video-inline-close").forEach(x => x.remove());
-    return;
-  }
+  // los controles del reproductor viven dentro del recuadro: tocarlos no es "subir otro"
+  if(t.closest("video.video-player, .video-uploading")) return;
   const driveLink = t.closest("[data-drive-link]");
   if(driveLink){ pedirLinkDrive(driveLink.dataset); return; }
 
@@ -9497,10 +9558,9 @@ document.addEventListener("click", async e => {
   if(up){
     if(!guard()) return;
     const {coll, id, field:f, kind} = up.dataset;
-    const data = await pickImage(kind || "image");
-    if(!data) return;
-    applyUploadedImage(coll, id, f, data);
-    touch(); render(); toast(kind === "video" ? "Video adjuntado" : "Imagen adjuntada", "img"); return;
+    const picked = await pickFile(kind || "image");
+    if(picked) await uploadIntoBox(coll, id, f, kind, picked.file, picked.auth);
+    return;
   }
 
   // pestaña de mes del Feed Preview: eliminar (antes que el cambio de pestaña)
@@ -9802,10 +9862,7 @@ document.addEventListener("drop", async e => {
   const {coll, id, field:fld, kind} = box.dataset;
   // el permiso de Drive se pide de una vez: soltar el archivo es el gesto del usuario
   const auth = await requestDriveAuth();
-  const data = await fileToMediaUrl(f, auth, kind || "image");
-  if(!data) return;
-  applyUploadedImage(coll, id, fld, data);
-  touch(); render(); toast(kind === "video" ? "Video adjuntado" : "Imagen adjuntada", "img");
+  await uploadIntoBox(coll, id, fld, kind, f, auth);
 });
 
 document.addEventListener("dragstart", e => {
@@ -9874,7 +9931,11 @@ document.addEventListener("keydown", e => {
     if((k === "z" && e.shiftKey) || k === "y"){ e.preventDefault(); redo(); return; }
   }
 });
-window.addEventListener("beforeunload", e => { if(dirty){ persist(true); } });
+window.addEventListener("beforeunload", e => {
+  if(dirty){ persist(true); }
+  // cerrar la pestaña corta la subida y el video no quedaría guardado en la pieza
+  if(videoUploads.size){ e.preventDefault(); e.returnValue = ""; }
+});
 
 /* ---------- Login / logout ---------- */
 $("#authForm")?.addEventListener("submit", async e => {
