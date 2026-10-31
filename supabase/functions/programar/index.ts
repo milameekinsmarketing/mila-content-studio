@@ -246,10 +246,20 @@ Deno.serve(async (req) => {
     }
 
     console.log("media enviada →", JSON.stringify(archivos).slice(0, 600));
+    console.log("redes enviadas →", JSON.stringify({
+      instagramData: cuerpo.instagramData, tiktokData: cuerpo.tiktokData,
+      location: cuerpo.location, videoThumbnailUrl: cuerpo.videoThumbnailUrl,
+    }).slice(0, 800));
     const creada = await metricool("/v2/scheduler/posts", blogId, {
       method: "POST",
       body: JSON.stringify(cuerpo),
     });
+    // lo que Metricool guardó de verdad, para comparar con lo enviado
+    const g = creada?.data ?? creada ?? {};
+    console.log("redes guardadas →", JSON.stringify({
+      instagramData: g.instagramData, tiktokData: g.tiktokData,
+      location: g.location, videoThumbnailUrl: g.videoThumbnailUrl,
+    }).slice(0, 800));
 
     return responder({
       ok: true,
