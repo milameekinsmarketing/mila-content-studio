@@ -82,9 +82,25 @@ Sube el cambio y listo.
 
 ## Cómo se usa
 
-En cada pieza de Posts, Reels, YouTube, Carruseles y Fin de mes aparece un botón
-**Programar**. Al presionarlo eliges fecha, hora y redes, y la publicación entra al
-planificador de Metricool con su copy y sus imágenes.
+**Sola, al aprobar.** Al marcar **Diseño aprobado** en un post, carrusel o historia
+—o **Aprobado para publicar** en un reel— la pieza entra sola a Metricool en el
+siguiente horario libre a partir de mañana:
+
+| Pieza | Horario | Redes |
+|---|---|---|
+| Reels | 19:00, uno por día | Instagram, Facebook y TikTok (con el video) |
+| Posts y carruseles | 12:00, uno por día entre los dos | Instagram y Facebook |
+| Historias | 09:00, 13:00 y 17:00 | Instagram y Facebook |
+
+Si se retira la aprobación o se desaprueba el diseño, se quita de Metricool. Si a la
+pieza le falta la imagen (o el video, en un reel), la app avisa y no la programa.
+Los horarios y las redes están en `PROG_AUTO`, dentro de `index.html`.
+
+**Lo aprobado antes de conectar.** En **Settings → Metricool → Programar todo lo
+aprobado que falta** se programa, en orden, todo lo aprobado que todavía no lo está.
+
+**A mano.** El botón **Programar** de cada pieza sigue estando: eliges fecha, hora y
+redes. Lo que se programa a mano no se quita al retirar la aprobación.
 
 El botón se pone verde y muestra cuándo y dónde quedó programada.
 
@@ -102,6 +118,10 @@ no de Metricool. Esas siguen siendo manuales.
 **Las imágenes tienen que ser públicas.** Las que están en Drive ya lo son. La función
 las pasa primero por Metricool para que las sirva desde su dominio; si alguna falla, te
 avisa cuál en vez de programar la pieza con una imagen rota.
+
+**Los videos van como enlace de descarga de Drive.** Metricool los descarga de ahí al
+publicar. Drive no deja que una página web los cargue, pero sí un servidor; la carpeta
+tiene que estar compartida como "Cualquier persona con el enlace".
 
 **El primer envío real puede necesitar un ajuste.** El código está escrito según la
 documentación de la API, pero hasta no hacer una llamada de verdad con tu cuenta no se

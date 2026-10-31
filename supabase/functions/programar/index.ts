@@ -80,11 +80,19 @@ Deno.serve(async (req) => {
 
     // --- 2. Lo que manda la app ---
     const {
-      blogId, texto = "", media = [], redes = [],
-      fecha, zona = "America/New_York", borrador = false, tipoInstagram,
+      accion, id, blogId, texto = "", media = [], videos = [], redes = [],
+      fecha, zona = "America/New_York", borrador = false, tipoInstagram, tipoFacebook,
     } = await req.json();
 
     if (!blogId) return responder({ error: "Falta el blogId de la marca." }, 400);
+
+    // Quitar una publicación programada: pasa cuando en la app se retira la aprobación
+    // del diseño de algo que se había programado solo.
+    if (accion === "borrar") {
+      if (!id) return responder({ error: "Falta el id de la publicación." }, 400);
+      await metricool(`/v2/scheduler/posts/${encodeURIComponent(String(id))}`, blogId, { method: "DELETE" });
+      return responder({ ok: true, borrada: id });
+    }
     if (!fecha)  return responder({ error: "Falta la fecha de publicación." }, 400);
 
     const destinos = (redes as string[]).filter((n) => REDES.includes(n));
@@ -104,6 +112,11 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Los videos (reels, YouTube) llegan como enlace de descarga directa de Drive.
+    // No pasan por normalize/image, que es solo para imágenes: Metricool los descarga
+    // de esa URL al publicar.
+    const archivos = [...(videos as string[]).filter(Boolean), ...imagenes];
+
     // --- 4. Se crea la publicación programada ---
     const cuerpo: Record<string, unknown> = {
       text: texto,
@@ -111,10 +124,13 @@ Deno.serve(async (req) => {
       publicationDate: { dateTime: fecha, timezone: zona },
       draft: !!borrador,
       autoPublish: !borrador,
-      media: imagenes,
+      media: archivos,
     };
     if (tipoInstagram && destinos.includes("instagram")) {
       cuerpo.instagramData = { type: tipoInstagram };
+    }
+    if (tipoFacebook && destinos.includes("facebook")) {
+      cuerpo.facebookData = { type: tipoFacebook };
     }
 
     const creada = await metricool("/v2/scheduler/posts", blogId, {

@@ -6405,6 +6405,147 @@ const PROG_REDES = [
   {id:"threads",   label:"Threads"},   {id:"pinterest",label:"Pinterest"}
 ];
 const progPuede = coll => !!PROG_MEDIA[coll];
+const PROG_FB_TYPE = { posts:"POST", carousels:"POST", urgente:"POST", reels:"REEL", stories:"STORY" };
+
+/* El video de reels y YouTube va como enlace de descarga directa de Drive. Drive no deja
+   que otra página lo cargue (le responde 403 al navegador), pero sí lo entrega a un
+   servidor como el de Metricool, que es quien lo descarga para publicarlo. */
+const PROG_VIDEO = { reels: it => it.video, youtube: it => it.video };
+function progVideoUrl(src){
+  const id = extractDriveFileId(src);
+  return id ? `https://drive.usercontent.google.com/download?id=${encodeURIComponent(id)}&export=download&confirm=t` : "";
+}
+
+/* Programación automática: al marcar "Diseño aprobado", la pieza entra sola a Metricool
+   en el siguiente horario libre de su grupo, a partir de mañana. Los reels no tienen esa
+   casilla: su aprobación es "Aprobado para publicar" (reviewed), y es la que los dispara. Los posts y los
+   carruseles comparten el horario del feed; los reels y las historias tienen el suyo.
+   TikTok solo publica video, así que va solo en los reels. */
+const PROG_AUTO = {
+  reels:     {grupo:"reels",   redes:["instagram","facebook","tiktok"], horas:["19:00"],                 requiere:"video"},
+  posts:     {grupo:"feed",    redes:["instagram","facebook"],          horas:["12:00"],                 requiere:"imagen"},
+  carousels: {grupo:"feed",    redes:["instagram","facebook"],          horas:["12:00"],                 requiere:"imagen"},
+  stories:   {grupo:"stories", redes:["instagram","facebook"],          horas:["09:00","13:00","17:00"], requiere:"imagen"}
+};
+const PROG_POR_REVISADO = new Set(["reels"]);
+const aprobadaParaProgramar = (coll, x) => PROG_POR_REVISADO.has(coll) ? !!x.reviewed : x.designApproved === true;
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+function siguienteHueco(coll){
+  const cfg = PROG_AUTO[coll];
+  const ocupados = new Set();
+  Object.keys(PROG_AUTO).filter(c => PROG_AUTO[c].grupo === cfg.grupo)
+    .forEach(c => (S[c] || []).forEach(x => { if(x.programado && x.programado.fecha) ocupados.add(x.programado.fecha); }));
+  for(let d = 1; d < 400; d++){
+    const fechaSolo = ymd(new Date(Date.now() + d * 86400000));
+    for(const horaSolo of cfg.horas) if(!ocupados.has(`${fechaSolo}T${horaSolo}`)) return {fechaSolo, horaSolo};
+  }
+  return null;
+}
+function progFalta(coll, it){
+  const cfg = PROG_AUTO[coll];
+  if(cfg && cfg.requiere === "video") return progVideoUrl(PROG_VIDEO[coll](it)) ? "" : "el video";
+  return (PROG_MEDIA[coll](it) || []).filter(Boolean).length ? "" : "la imagen";
+}
+
+async function llamarMetricool(cuerpo){
+  // la función solo atiende a quien tiene sesión: sin nube no hay a quién pedirle permiso
+  if(!sbClient) throw new Error("no hay conexión con la nube; inicia sesión para programar");
+  const { data: { session } } = await sbClient.auth.getSession();
+  if(!session) throw new Error("tu sesión expiró; vuelve a iniciar sesión");
+  const r = await fetch(METRICOOL_FN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify(cuerpo)
+  });
+  const res = await r.json().catch(() => ({}));
+  if(!r.ok || res.error) throw new Error(res.error || `Error ${r.status}`);
+  return res;
+}
+
+/* Manda una pieza a Metricool y deja anotado en ella cuándo y dónde quedó. */
+async function enviarAMetricool(coll, id, {fechaSolo, horaSolo, redes, borrador=false, auto=false}){
+  const it = find(coll, id); if(!it) throw new Error("la pieza ya no existe");
+  const video = PROG_VIDEO[coll] ? progVideoUrl(PROG_VIDEO[coll](it)) : "";
+  const res = await llamarMetricool({
+    blogId: brandById(activeBrandId).metricoolBlogId,
+    texto: (it.copy || "").trim(),
+    media: video ? [] : (PROG_MEDIA[coll](it) || []).filter(Boolean),
+    videos: video ? [video] : [],
+    redes,
+    fecha: `${fechaSolo}T${horaSolo}:00`,
+    zona: METRICOOL_TZ,
+    borrador,
+    tipoInstagram: PROG_IG_TYPE[coll],
+    tipoFacebook: PROG_FB_TYPE[coll]
+  });
+  // se vuelve a buscar: mientras Metricool respondía, la vista pudo recargarse
+  const ahora = find(coll, id);
+  if(ahora) ahora.programado = { fecha:`${fechaSolo}T${horaSolo}`, fechaSolo, horaSolo, redes, id:res.id || null, borrador, auto };
+  logActivity("cal", `<b>${auto ? "Programado solo" : "Programado"}:</b> ${esc(it.title || it.idea || "Pieza")} para el ${esc(fechaSolo)} a las ${esc(horaSolo)} en ${esc(redes.join(", "))}.`);
+  touch(); render();
+  return res;
+}
+
+const progEnCurso = new Set();
+async function autoProgramar(coll, id, {silencioso=false} = {}){
+  const cfg = PROG_AUTO[coll];
+  const it = find(coll, id);
+  if(!cfg || !it || !metricoolEnabled() || (it.programado && it.programado.fecha) || progEnCurso.has(id)) return false;
+  const marca = brandById(activeBrandId);
+  if(!marca.metricoolBlogId){ if(!silencioso) toast(`Aprobado, pero no se programó: falta el blogId de Metricool de ${marca.label}.`, "alert", true); return false; }
+  const falta = progFalta(coll, it);
+  if(falta){ if(!silencioso) toast(`Aprobado, pero no se programó: falta ${falta}.`, "alert", true); return false; }
+  const hueco = siguienteHueco(coll);
+  if(!hueco) return false;
+  progEnCurso.add(id);
+  try{
+    await enviarAMetricool(coll, id, {...hueco, redes: cfg.redes, auto: true});
+    if(!silencioso) toast(`Programado solo para el ${hueco.fechaSolo} a las ${hueco.horaSolo} en ${cfg.redes.join(", ")}.`, "check");
+    return true;
+  }catch(e){
+    console.warn("No se pudo programar solo", e);
+    toast(`Aprobado, pero Metricool no lo programó: ${e.message}`, "alert", true);
+    return false;
+  }finally{
+    progEnCurso.delete(id);
+  }
+}
+
+/* Al retirar la aprobación o desaprobar el diseño, lo que se programó solo se quita de
+   Metricool. Lo que se programó a mano con el botón "Programar" no se toca: esa fue una
+   decisión aparte. */
+async function cancelarAutoProgramado(coll, id){
+  const it = find(coll, id);
+  const p = it && it.programado;
+  if(!p || !p.auto || !metricoolEnabled()) return;
+  try{
+    if(p.id) await llamarMetricool({accion: "borrar", blogId: brandById(activeBrandId).metricoolBlogId, id: p.id});
+    const ahora = find(coll, id); if(ahora) ahora.programado = null;
+    logActivity("cal", `<b>Quitado de Metricool:</b> ${esc(it.title || it.idea || "Pieza")}.`);
+    touch(); render();
+    toast("Se quitó de la programación de Metricool.", "history");
+  }catch(e){
+    console.warn("No se pudo quitar de Metricool", e);
+    toast(`No se pudo quitar de Metricool: ${e.message}. Bórrala a mano en el planificador.`, "alert", true);
+  }
+}
+
+/* Para lo que se aprobó antes de conectar Metricool (o cuando falló): programa, en
+   orden, todo lo aprobado de la marca que todavía no está programado. */
+async function programarAprobadasPendientes(){
+  if(!guard()) return;
+  if(!metricoolEnabled()){ toast("Metricool todavía no está conectado.", "alert", true); return; }
+  const pendientes = Object.keys(PROG_AUTO).flatMap(c => sorted(c)
+    .filter(x => aprobadaParaProgramar(c, x) && !(x.programado && x.programado.fecha)).map(x => [c, x.id]));
+  if(!pendientes.length){ toast("No hay piezas aprobadas sin programar.", "check"); return; }
+  let ok = 0;
+  for(let i = 0; i < pendientes.length; i++){
+    toast(`Programando ${i+1} de ${pendientes.length}…`, "upload");
+    if(await autoProgramar(pendientes[i][0], pendientes[i][1], {silencioso:true})) ok++;
+  }
+  const sinMedia = pendientes.length - ok;
+  toast(`${ok} programadas en Metricool.${sinMedia ? ` ${sinMedia} no se pudieron (les falta imagen o video, o Metricool dio error).` : ""}`, sinMedia ? "alert" : "check", !!sinMedia);
+}
 
 /* Chip con lo ya programado, o el botón para programarlo. */
 function scheduleBtnHTML(coll, id){
@@ -6443,6 +6584,7 @@ function openScheduleModal(coll, id){
   }
 
   const imagenes = (PROG_MEDIA[coll](it) || []).filter(Boolean);
+  const conVideo = !!(PROG_VIDEO[coll] && progVideoUrl(PROG_VIDEO[coll](it)));
   const copy = (it.copy || "").trim();
   const previo = it.programado || {};
   const def = progFechaPorDefecto();
@@ -6455,8 +6597,12 @@ function openScheduleModal(coll, id){
         <h3>Programar publicación</h3>
         <p class="prog-titulo">${esc(it.title || "Sin título")}</p>
 
-        <div class="prog-aviso ${imagenes.length ? "" : "warn"}">
-          ${imagenes.length
+        <div class="prog-aviso ${conVideo || imagenes.length ? "" : "warn"}">
+          ${conVideo
+            ? `<svg><use href="#i-play"/></svg>Video · ${copy.length} caracteres de copy`
+            : PROG_VIDEO[coll]
+            ? `<svg><use href="#i-alert"/></svg>Este ${coll === "reels" ? "reel" : "video"} todavía no tiene el video cargado: no se puede publicar en TikTok ni como reel.`
+            : imagenes.length
             ? `<svg><use href="#i-img"/></svg>${imagenes.length} imagen(es) · ${copy.length} caracteres de copy`
             : `<svg><use href="#i-alert"/></svg>Esta pieza todavía no tiene imagen. Puedes programarla igual, pero saldrá sin media.`}
         </div>
@@ -6504,35 +6650,11 @@ function openScheduleModal(coll, id){
 
     const btn = $("#progEnviar");
     btn.disabled = true; btn.innerHTML = "Programando…";
+    const borrador = $("#progBorrador").checked;
     try{
-      // La función solo atiende a quien tiene sesión: sin nube no hay a quién pedirle
-      // el permiso, y conviene decirlo claro en vez de fallar con un error técnico.
-      if(!sbClient) throw new Error("no hay conexión con la nube; inicia sesión para programar");
-      const { data: { session } } = await sbClient.auth.getSession();
-      if(!session) throw new Error("tu sesión expiró; vuelve a iniciar sesión");
-      const r = await fetch(METRICOOL_FN_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token || ""}` },
-        body: JSON.stringify({
-          blogId: marca.metricoolBlogId,
-          texto: copy,
-          media: imagenes,
-          redes,
-          fecha: `${fechaSolo}T${horaSolo}:00`,
-          zona: METRICOOL_TZ,
-          borrador: $("#progBorrador").checked,
-          tipoInstagram: PROG_IG_TYPE[coll]
-        })
-      });
-      const res = await r.json();
-      if(!r.ok || res.error) throw new Error(res.error || `Error ${r.status}`);
-
-      it.programado = { fecha:`${fechaSolo}T${horaSolo}`, fechaSolo, horaSolo, redes, id:res.id || null,
-                        borrador: $("#progBorrador").checked };
-      logActivity("cal", `<b>Programado:</b> ${esc(it.title || "Pieza")} para el ${esc(fechaSolo)} a las ${esc(horaSolo)} en ${esc(redes.join(", "))}.`);
+      await enviarAMetricool(coll, id, {fechaSolo, horaSolo, redes, borrador});
       host.innerHTML = "";
-      touch(); render();
-      toast($("#progBorrador")?.checked ? "Guardado como borrador en Metricool" : "Programado en Metricool ✓", "check");
+      toast(borrador ? "Guardado como borrador en Metricool" : "Programado en Metricool ✓", "check");
     }catch(e){
       console.warn("No se pudo programar", e);
       btn.disabled = false; btn.innerHTML = `<svg><use href="#i-cal"/></svg> Programar`;
@@ -7953,6 +8075,7 @@ function storyCard(s, i){
     <div class="story-body">
       ${field("Idea original","list", textarea("stories", s.id, "idea", s.idea, "La idea de esta historia...", "", 2))}
       <div class="story-foot">
+        ${scheduleBtnHTML("stories", s.id)}
         ${reviewCheckHTML("stories", s.id, !!s.reviewed)}
         ${publishCheckHTML("stories", s.id, !!s.published)}
         ${designApprovalHTML("stories", s.id, s.designApproved, s.designNote)}
@@ -8477,6 +8600,13 @@ function viewSettings(){
   <div class="readonly-note"><svg width="16" height="16"><use href="#i-alert"/></svg> Modo <b>Viewer</b>: la edición está bloqueada.</div>
 
   <div class="set-grid">
+    <div class="card">
+      <div class="card-head"><h3>Metricool</h3><span class="cloud-status ${metricoolEnabled() && brandById(activeBrandId).metricoolBlogId ? "ok" : "err"}">${metricoolEnabled() && brandById(activeBrandId).metricoolBlogId ? "Conectado" : "Sin conectar"}</span></div>
+      <div class="card-body">
+        <p class="hint-line" style="margin-top:0">Al marcar <b>Diseño aprobado</b> (en los reels, <b>Aprobado para publicar</b>), cada pieza se programa sola en el siguiente horario libre a partir de mañana: reels a las ${PROG_AUTO.reels.horas.join(", ")} (Instagram, Facebook y TikTok), posts y carruseles a las ${PROG_AUTO.posts.horas.join(", ")} e historias a las ${PROG_AUTO.stories.horas.join(", ")} (Instagram y Facebook). Si se retira la aprobación o se desaprueba, se quita de Metricool.</p>
+        <button class="btn btn-ghost lock-viewer" data-action="prog-pendientes" ${metricoolEnabled() ? "" : "disabled"}><svg><use href="#i-cal"/></svg> Programar todo lo aprobado que falta</button>
+      </div>
+    </div>
     <div class="card">
       <div class="card-head"><h3>Perfil público</h3></div>
       <div class="card-body">
@@ -9455,6 +9585,7 @@ document.addEventListener("click", async e => {
     if(a === "redo"){ redo(); return; }
     if(a === "new"){ createItem(act.dataset.coll); return; }
     if(a === "tidy-stories"){ tidyStoriesMonth(); return; }
+    if(a === "prog-pendientes"){ programarAprobadasPendientes(); return; }
     if(a === "drive-stories"){ storiesFromDrive(); return; }
     if(a === "bulk-stories"){
       if(!guard()) return;
@@ -9708,6 +9839,10 @@ document.addEventListener("click", async e => {
     logActivity(it.reviewed ? "ok" : "cal", `<b>${it.reviewed ? "Marcado como listo" : "Revisión retirada"}:</b> ${esc(it.title || it.content || "Historia")}.`);
     touch(); render();
     toast(it.reviewed ? "Listo para publicar ✓" : "Revisión retirada", it.reviewed ? "check" : "history");
+    if(PROG_POR_REVISADO.has(rev.dataset.coll)){
+      if(it.reviewed) autoProgramar(rev.dataset.coll, rev.dataset.id);
+      else cancelarAutoProgramado(rev.dataset.coll, rev.dataset.id);
+    }
     return;
   }
 
@@ -9733,6 +9868,9 @@ document.addEventListener("click", async e => {
     logActivity(it.designApproved === true ? "ok" : "cal", `<b>${it.designApproved === true ? "Diseño aprobado" : "Aprobación de diseño retirada"}:</b> ${esc(it.title || it.content || "Historia")}.`);
     touch(); render();
     toast(it.designApproved === true ? "Diseño marcado como aprobado ✓" : "Marca retirada", it.designApproved === true ? "check" : "history");
+    const {coll, id} = desApprove.dataset;
+    if(it.designApproved === true) autoProgramar(coll, id);
+    else cancelarAutoProgramado(coll, id);
     return;
   }
 
@@ -9745,6 +9883,7 @@ document.addEventListener("click", async e => {
     logActivity(it.designApproved === false ? "alert" : "cal", `<b>${it.designApproved === false ? "Diseño desaprobado" : "Desaprobación de diseño retirada"}:</b> ${esc(it.title || it.content || "Historia")}.`);
     touch(); render();
     toast(it.designApproved === false ? "Diseño marcado como desaprobado" : "Marca retirada", it.designApproved === false ? "alert" : "history");
+    if(it.designApproved === false) cancelarAutoProgramado(desReject.dataset.coll, desReject.dataset.id);
     return;
   }
 
