@@ -824,6 +824,13 @@ button.mover-op:hover{border-color:var(--gold);background:var(--gold-pale)}
 .modal h3{font-family:var(--serif);font-size:24px;margin:0 0 8px;color:var(--navy)}
 .modal p{color:#5E7186;margin:0 0 20px;font-weight:300}
 .modal .row{display:flex;gap:10px;justify-content:flex-end}
+/* Subida masiva de historias: cada foto en miniatura con la historia a la que va */
+.modal.modal-bulk{max-width:760px;max-height:calc(100vh - 40px);display:flex;flex-direction:column}
+.bulk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:12px;overflow:auto;margin:0 0 20px;padding:2px}
+.bulk-item{margin:0}
+.bulk-item img{width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:10px;border:1px solid var(--line);background:#F3EEE5;display:block}
+.bulk-item figcaption{font-size:11px;line-height:1.35;color:#5E7186;margin-top:5px;word-break:break-word}
+.bulk-item figcaption b{display:block;color:var(--navy);font-weight:600}
 .hidden{display:none!important}
 
 /* Menú del botón "Crear" — elegir formato antes de crear la pieza */
@@ -8864,19 +8871,54 @@ function createItem(coll){
 }
 
 /* ---------- Subida masiva de historias ----------
-   Cada foto se convierte en una historia nueva del mes que se está viendo, en el orden
-   de los nombres de archivo (Sold-001, Sold-002…). No llena historias que ya existen:
-   esas tienen su propio contenido planificado. Las fotos van solo a Google Drive —
-   noventa imágenes embebidas harían pesar el workspace decenas de megas. */
+   Las fotos se reparten en el mes que se está viendo, en el orden de los nombres de
+   archivo (Sold-001, Sold-002…). Primero llenan las historias de "Casa vendida" de ese
+   mes que todavía no tienen foto (Primera casa vendida, Segunda…), y con las que sobran
+   se crean historias nuevas al final del mes. Ninguna otra historia se toca. Antes de
+   subir se muestra cada foto en miniatura con su destino. Las fotos van solo a Google
+   Drive — noventa imágenes embebidas harían pesar el workspace decenas de megas. */
+const BULK_FILL_FORMAT = "Casa vendida";
+
+/* Historias vacías del mes que se llenan primero, en el orden en que se ven en la lista
+   (más recientes primero: así "Primera casa vendida" va antes que "Segunda"). */
+function bulkFillTargets(monthId){
+  return S.stories
+    .filter(s => s.monthId === monthId && !s.media && s.format === BULK_FILL_FORMAT)
+    .sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+}
+
 function prepareBulkStories(fileList){
   const files = Array.from(fileList || []).filter(f => /^image\//.test(f.type))
     .sort((a,b) => a.name.localeCompare(b.name, "es", {numeric:true}));
   const skipped = (fileList ? fileList.length : 0) - files.length;
   if(!files.length){ toast("No hay imágenes para subir.", "alert", true); return; }
   const mes = activeContentMonth();
-  confirmDialog(`¿Subir ${files.length} historias a ${mes.label}?`,
-    `Se crea una historia nueva por cada foto, en orden (${files[0].name}${files.length > 1 ? ` … ${files[files.length-1].name}` : ""}). Las historias que ya existen no se tocan.${skipped ? ` ${skipped} archivo(s) que no son imágenes se dejan fuera.` : ""} Mantén esta pestaña abierta hasta que termine.`,
-    () => bulkUploadStories(files, mes.id), `Subir ${files.length}`);
+  const targets = bulkFillTargets(mes.id);
+  const llenar = Math.min(targets.length, files.length);
+  const nuevas = files.length - llenar;
+  const yaHay = contentMonthCount("stories", mes.id);
+  const thumbs = files.map(f => URL.createObjectURL(f));
+  const host = $("#modalHost");
+  const close = () => { host.innerHTML = ""; thumbs.forEach(u => URL.revokeObjectURL(u)); };
+  host.innerHTML = `
+    <div class="modal-bg" data-close>
+      <div class="modal modal-bulk" role="dialog" aria-modal="true">
+        <h3>¿Subir ${files.length} historias a ${esc(mes.label)}?</h3>
+        <p>${llenar ? `${llenar} van a las historias de ${esc(BULK_FILL_FORMAT.toLowerCase())} que ya están creadas y vacías. ` : ""}${nuevas ? `Se crean ${nuevas} historias nuevas al final del mes. ` : ""}Ninguna otra historia se toca.${skipped ? ` ${skipped} archivo(s) que no son imágenes se dejan fuera.` : ""} Mantén esta pestaña abierta hasta que termine.</p>
+        <div class="bulk-grid">
+          ${files.map((f, i) => `<figure class="bulk-item">
+            <img src="${thumbs[i]}" alt="" loading="lazy">
+            <figcaption><b>${esc(f.name.replace(/\.[^.]+$/, ""))}</b>${i < llenar ? `→ ${esc(targets[i].idea || "historia existente")}` : `→ nueva · #${yaHay + i - llenar + 1}`}</figcaption>
+          </figure>`).join("")}
+        </div>
+        <div class="row">
+          <button class="btn btn-ghost" data-close>Cancelar</button>
+          <button class="btn btn-gold" id="mYes">Subir ${files.length}</button>
+        </div>
+      </div>
+    </div>`;
+  host.onclick = e => { if(e.target.hasAttribute("data-close")) close(); };
+  $("#mYes").onclick = () => { close(); bulkUploadStories(files, mes.id, targets.slice(0, llenar).map(s => s.id)); };
 }
 
 function readAsDataURL(f){
@@ -8889,7 +8931,7 @@ function readAsDataURL(f){
 }
 
 let bulkUploading = false;
-async function bulkUploadStories(files, monthId){
+async function bulkUploadStories(files, monthId, fillIds){
   if(bulkUploading){ toast("Ya hay una subida en curso.", "alert", true); return; }
   // se pide aquí, en el clic de confirmar, que es un gesto nuevo del usuario
   const auth = await requestDriveAuth();
@@ -8900,12 +8942,12 @@ async function bulkUploadStories(files, monthId){
   bulkUploading = true;
   const brand = activeBrandId; // si se cambia de marca a mitad, se detiene: S ya es otra marca
   // la lista va de más reciente a más antigua: para que las nuevas queden después de
-  // lo ya planificado del mes, y en el orden de los archivos, la primera foto lleva una
+  // lo ya planificado del mes, y en el orden de los archivos, la primera nueva lleva una
   // fecha justo anterior a la historia más antigua del mes y cada siguiente, una antes
   const delMes = S.stories.filter(s => s.monthId === monthId).map(s => s.createdAt || 0);
   const base = (delMes.length ? Math.min(...delMes) : now()) - 1;
   let maxOrder = Math.max(-1, ...S.stories.map(s => s.order ?? 0));
-  let ok = 0;
+  let filled = 0, created = 0;
   const failed = [];
   try{
     for(let i = 0; i < files.length; i++){
@@ -8914,11 +8956,18 @@ async function bulkUploadStories(files, monthId){
       toast(`Subiendo historia ${i+1} de ${files.length}…`, "upload");
       try{
         const url = await uploadToDriveWithToken(auth.token, await compress(await readAsDataURL(f)), f.name);
-        S.stories.push({id:uid("story"), createdAt:base - i, order:++maxOrder, monthId,
-          rating:0, status:"draft", reviewed:false, published:false, collapsed:false,
-          designApproved:null, designNote:"", pillar:"educacion", format:"Foto",
-          idea:f.name.replace(/\.[^.]+$/, ""), content:"", followup:"", note:"", media:url});
-        ok++;
+        // si alguien le puso foto a esa historia mientras tanto, esta foto va a una nueva
+        const target = i < fillIds.length ? find("stories", fillIds[i]) : null;
+        if(target && !target.media){
+          target.media = url;
+          filled++;
+        }else{
+          S.stories.push({id:uid("story"), createdAt:base - created, order:++maxOrder, monthId,
+            rating:0, status:"draft", reviewed:false, published:false, collapsed:false,
+            designApproved:null, designNote:"", pillar:"patrimonio", format:fillIds.length ? BULK_FILL_FORMAT : "Foto",
+            idea:f.name.replace(/\.[^.]+$/, ""), content:"", followup:"", note:"", media:url});
+          created++;
+        }
         touch(); render();
       }catch(e){
         console.warn("No se pudo subir a Google Drive", f.name, e);
@@ -8928,11 +8977,12 @@ async function bulkUploadStories(files, monthId){
   }finally{
     bulkUploading = false;
   }
-  logActivity(failed.length ? "alert" : "ok", `<b>Subida masiva:</b> ${ok} historia(s) creadas${failed.length ? `, ${failed.length} sin subir (${esc(failed.join(", "))})` : ""}.`);
+  const resumen = [filled && `${filled} historias existentes con foto`, created && `${created} historias nuevas`].filter(Boolean).join(" y ") || "ninguna historia";
+  logActivity(failed.length ? "alert" : "ok", `<b>Subida masiva:</b> ${resumen}${failed.length ? `; ${failed.length} sin subir (${esc(failed.join(", "))})` : ""}.`);
   persist(true);
   toast(failed.length
-    ? `${ok} historias creadas. No se pudieron subir ${failed.length}: ${failed.join(", ")}. Vuelve a subir solo esas.`
-    : `Listo: ${ok} historias creadas.`, failed.length ? "alert" : "check", !!failed.length);
+    ? `Subidas: ${resumen}. No se pudieron subir ${failed.length}: ${failed.join(", ")}. Vuelve a subir solo esas.`
+    : `Listo: ${resumen}.`, failed.length ? "alert" : "check", !!failed.length);
 }
 
 function deleteItem(coll, id){
