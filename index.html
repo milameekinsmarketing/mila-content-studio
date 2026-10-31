@@ -498,12 +498,23 @@ button.mover-op:hover{border-color:var(--gold);background:var(--gold-pale)}
 .media.is-video.has-img{border-style:solid;border-color:var(--line);background:#EFE7DA}
 .media .ph.video-loaded{color:var(--gold-deep)}
 /* Miniatura del video: un fotograma sacado en el navegador al subirlo o, si no, la que
-   genera Drive. Mientras Drive la prepara, la imagen se oculta y queda el cartel. */
+   genera Drive. Mientras Drive la prepara, la imagen se oculta y queda el cartel; el
+   botón de reproducir está siempre, porque el reproductor de Drive no espera a la
+   miniatura. */
 .media img.video-thumb.thumb-wait{display:none}
 .media .video-badge{position:absolute;top:50%;left:50%;width:46px;height:46px;margin:-23px 0 0 -23px;
   border-radius:50%;background:rgba(26,30,57,.6);color:#fff;display:grid;place-items:center;pointer-events:none;z-index:1}
 .media .video-badge svg{width:24px;height:24px}
-.media img.video-thumb.thumb-wait ~ .video-badge{display:none}
+/* el botón de reproducir sí recibe clics: abre el reproductor de Drive dentro del recuadro */
+.media button.video-badge{border:0;padding:0;cursor:pointer;pointer-events:auto;transition:background .15s}
+.media button.video-badge:hover{background:rgba(26,30,57,.85)}
+.media .video-inline{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;z-index:2}
+.media .video-inline-close{position:absolute;top:8px;right:8px;z-index:3;width:30px;height:30px;border-radius:50%;
+  border:0;background:rgba(26,30,57,.75);color:#fff;font-size:18px;line-height:30px;cursor:pointer}
+.media .media-link{position:absolute;left:8px;top:8px;z-index:1;display:flex;align-items:center;gap:5px;
+  padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.92);
+  color:var(--navy);font-size:11px;cursor:pointer}
+.media .media-link svg{width:13px;height:13px}
 
 /* Botón de ampliar de cualquier archivo multimedia */
 .media-zoom,.media-dl{position:absolute;bottom:8px;width:32px;height:32px;border-radius:50%;
@@ -6770,18 +6781,50 @@ function mediaBox({coll, id, field, src, ratio="ratio-45", title="Subir imagen",
     inner = `<div class="ph video-loaded">
       <svg><use href="#i-play"/></svg>
       <div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase">Video cargado</div>
-      <small>${thumb ? "Drive está preparando la miniatura · amplía para reproducirlo" : "Amplía para reproducirlo"}</small>
+      <small>${thumb ? "Drive está preparando la miniatura · pulsa ▶ para reproducirlo" : "Pulsa ▶ para reproducirlo"}</small>
     </div>
-    ${thumb ? `<img class="video-thumb" data-video-thumb="${esc(fileId)}" src="${thumb}" alt="" loading="lazy">
-    <span class="video-badge"><svg><use href="#i-play"/></svg></span>` : ""}`;
+    ${thumb ? `<img class="video-thumb" data-video-thumb="${esc(fileId)}" src="${thumb}" alt="" loading="lazy">` : ""}
+    <button type="button" class="video-badge" data-play-inline data-src="${esc(src)}" title="Reproducir aquí"><svg><use href="#i-play"/></svg></button>`;
   }else{
     inner = `<img src="${src}" alt="">`;
   }
   return `<div class="media ${ratio} ${src ? "has-img" : ""} ${isVideo ? "is-video" : ""}" data-upload data-kind="${kind}" data-coll="${coll}" data-id="${id}" data-field="${field}" title="Clic para ${src?"reemplazar":"subir"}">
     ${inner}
+    ${isVideo ? `<button type="button" class="media-link lock-viewer" data-drive-link data-coll="${coll}" data-id="${id}" data-field="${field}" title="Conectar un video que ya está en Google Drive pegando su link"><svg><use href="#i-link"/></svg>Link de Drive</button>` : ""}
     ${src ? `<button type="button" class="media-dl" data-media-dl data-src="${esc(src)}" title="Descargar archivo"><svg><use href="#i-down"/></svg></button>
     <button type="button" class="media-zoom" data-zoom data-src="${esc(src)}" data-mkind="${kind}" data-title="${zoomTitle}" title="Ver en pantalla completa"><svg><use href="#i-expand"/></svg></button>` : ""}
   </div>`;
+}
+/* Conectar un video que ya está en Google Drive pegando su link ("Compartir → Copiar
+   enlace"). Sirve para los que se subieron directo a Drive, que la app no puede ver
+   por su cuenta, o cuando una subida terminó en Drive pero no quedó guardada en la
+   pieza. El archivo tiene que estar compartido como "Cualquier persona con el enlace"
+   para que se vea su miniatura y se pueda reproducir. */
+function pedirLinkDrive({coll, id, field}){
+  if(!guard()) return;
+  const host = $("#modalHost");
+  host.innerHTML = `
+    <div class="modal-bg" data-close>
+      <div class="modal" role="dialog" aria-modal="true">
+        <h3>Conectar video de Google Drive</h3>
+        <p>En Drive, haz clic derecho sobre el video → <b>Compartir</b> → <b>Copiar enlace</b>, y pégalo aquí. El video tiene que estar compartido como <b>"Cualquier persona con el enlace"</b>.</p>
+        <input class="fsel" id="driveLinkInput" placeholder="https://drive.google.com/file/d/…" style="width:100%;margin:0 0 20px">
+        <div class="row">
+          <button class="btn btn-ghost" data-close>Cancelar</button>
+          <button class="btn btn-gold" id="mYes">Conectar</button>
+        </div>
+      </div>
+    </div>`;
+  host.onclick = e => { if(e.target.hasAttribute("data-close")) host.innerHTML = ""; };
+  $("#driveLinkInput").focus();
+  $("#mYes").onclick = () => {
+    const link = $("#driveLinkInput").value.trim();
+    const fileId = extractDriveFileId(link) || (link.match(/^[\w-]{20,}$/) || [])[0];
+    if(!fileId){ toast("Ese no parece un link de un archivo de Google Drive.", "alert", true); return; }
+    host.innerHTML = "";
+    applyUploadedImage(coll, id, field, `https://drive.google.com/file/d/${fileId}/preview`);
+    touch(); render(); toast("Video conectado", "check");
+  };
 }
 function driveVideoThumb(fileId, attempt=0){
   return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w640${attempt ? "&r=" + attempt : ""}`;
@@ -9429,6 +9472,26 @@ document.addEventListener("click", async e => {
     if(src) openImageLightbox(src, zoomBtn.dataset.title || "", zoomBtn.dataset.mkind || "image");
     return;
   }
+
+  const playInline = t.closest("[data-play-inline]");
+  if(playInline){
+    const box = playInline.closest(".media");
+    const id = extractDriveFileId(playInline.dataset.src);
+    if(box && id){
+      box.querySelectorAll(".video-inline,.video-inline-close").forEach(x => x.remove());
+      box.insertAdjacentHTML("beforeend", `<iframe class="video-inline" src="https://drive.google.com/file/d/${encodeURIComponent(id)}/preview" allow="autoplay; fullscreen" allowfullscreen></iframe>
+        <button type="button" class="video-inline-close" data-play-stop title="Cerrar el video">×</button>`);
+    }
+    return;
+  }
+  const playStop = t.closest("[data-play-stop]");
+  if(playStop){
+    const box = playStop.closest(".media");
+    if(box) box.querySelectorAll(".video-inline,.video-inline-close").forEach(x => x.remove());
+    return;
+  }
+  const driveLink = t.closest("[data-drive-link]");
+  if(driveLink){ pedirLinkDrive(driveLink.dataset); return; }
 
   const up = t.closest("[data-upload]");
   if(up){
