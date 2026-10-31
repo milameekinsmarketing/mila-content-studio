@@ -6180,20 +6180,44 @@ async function loadFromCloud(){
   }
 }
 
+/* Guardado en la nube.
+   - De a uno: si ya hay un guardado en camino, el siguiente espera y sale después con
+     lo último. Dos a la vez podían llegar al revés y dejar guardada la versión vieja.
+   - Si falla (sin conexión, Supabase caído), el trabajo queda marcado como no guardado,
+     se avisa una vez y se reintenta solo cada 10 s hasta que entre.
+   - Cada guardado se reconoce por su hora exacta (cloudPushed), para que el aviso en
+     tiempo real de ese mismo guardado no se tome como un cambio de otra persona. */
+const cloudPushed = new Set();
+let cloudPending = false, cloudRetryTimer = null, cloudFailWarned = false;
 async function syncToCloud(){
   if(!sbClient || !currentUser) return;
+  if(cloudSaveInFlight){ cloudPending = true; return; }
   cloudSaveInFlight = true;
+  updateSaveState();
   try{
+    const stamp = new Date().toISOString();
+    cloudPushed.add(Date.parse(stamp));
     const { error } = await sbClient.from("workspace_state").upsert({
-      id: WORKSPACE_ID, data: packWorkspace(), updated_at: new Date().toISOString(), updated_by: currentUser.id
+      id: WORKSPACE_ID, data: packWorkspace(), updated_at: stamp, updated_by: currentUser.id
     });
     if(error) throw error;
+    clearTimeout(cloudRetryTimer);
+    if(cloudFailWarned){ cloudFailWarned = false; toast("Guardado en la nube ✓", "check"); }
     if(!cloudSyncOK){ cloudSyncOK = true; updateCloudStatus(); }
   }catch(e){
     console.warn("No se pudo sincronizar con Supabase", e);
-    cloudSyncOK = false; updateCloudStatus();
+    dirty = true;   // sigue sin estar en la nube: no se deja pisar por cambios de otros
+    if(!cloudFailWarned){
+      cloudFailWarned = true;
+      toast("No se pudo guardar en la nube. Se reintenta solo cada 10 segundos: no cierres la pestaña.", "alert", true);
+    }
+    clearTimeout(cloudRetryTimer);
+    cloudRetryTimer = setTimeout(() => persist(true), 10000);
+    if(cloudSyncOK){ cloudSyncOK = false; updateCloudStatus(); }
   }finally{
     cloudSaveInFlight = false;
+    if(cloudPending){ cloudPending = false; syncToCloud(); }
+    updateSaveState();
   }
 }
 
@@ -6204,7 +6228,10 @@ function subscribeRealtime(){
     .on("postgres_changes", { event: "UPDATE", schema: "public", table: "workspace_state", filter: `id=eq.${WORKSPACE_ID}` }, payload => {
       const incoming = payload.new;
       if(!incoming || !incoming.data) return;
-      if(incoming.updated_by === currentUser?.id) return; // fue nuestro propio cambio
+      // fue un guardado de esta misma pestaña. Antes se comparaba la cuenta, y con la
+      // app abierta en dos pestañas (o dos computadoras) con la misma cuenta, cada una
+      // ignoraba lo que guardaba la otra y al guardar la pisaba con su versión vieja.
+      if(cloudPushed.has(Date.parse(incoming.updated_at))) return;
       if(dirty || cloudSaveInFlight) return; // hay ediciones locales sin guardar: no se pisan
       S = unpackWorkspace(incoming.data);
       historyReset();
@@ -6290,12 +6317,17 @@ async function boot(){
     if(event === "SIGNED_OUT"){ location.reload(); }
   });
 }
+/* El botón dice en qué está el guardado, que es automático: "Guardando…" mientras
+   hay cambios en camino, "Sin guardar · reintentando" si la nube falló, y "Guardado"
+   cuando todo está en la nube. Pulsarlo igual fuerza un guardado en el momento. */
 function updateSaveState(){
-  const b = $('[data-action="save"]');
-  if(!b) return;
-  b.innerHTML = dirty
-    ? '<svg><use href="#i-save"/></svg> Guardar Cambios *'
-    : '<svg><use href="#i-save"/></svg> Guardar Cambios';
+  const enCamino = dirty || cloudSaveInFlight;
+  const label = !cloudSyncOK && sbClient && currentUser ? "Sin guardar · reintentando"
+              : enCamino ? "Guardando…" : "Guardado";
+  $$('[data-action="save"]').forEach(b => {
+    b.innerHTML = `<svg><use href="#i-${enCamino || !cloudSyncOK ? "save" : "check"}"/></svg> ${label}`;
+    b.title = "Todo se guarda solo. Pulsa para guardar en este momento.";
+  });
   const dot = $("#notifDot");
   if(dot) dot.style.display = dirty ? "block" : "none";
 }
@@ -9962,9 +9994,11 @@ document.addEventListener("keydown", e => {
   }
 });
 window.addEventListener("beforeunload", e => {
+  const pendiente = dirty || cloudSaveInFlight;
   if(dirty){ persist(true); }
-  // cerrar la pestaña corta la subida y el video no quedaría guardado en la pieza
-  if(videoUploads.size){ e.preventDefault(); e.returnValue = ""; }
+  // cerrar la pestaña corta la subida (el video no quedaría en la pieza) o el guardado
+  // que va en camino: el navegador pregunta antes de salir
+  if(videoUploads.size || (pendiente && sbClient && currentUser)){ e.preventDefault(); e.returnValue = ""; }
 });
 
 /* ---------- Login / logout ---------- */
