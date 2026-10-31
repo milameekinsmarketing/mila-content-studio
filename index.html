@@ -500,8 +500,13 @@ button.mover-op:hover{border-color:var(--gold);background:var(--gold-pale)}
 /* Reproductor dentro del recuadro, con la miniatura de portada: un fotograma sacado en
    el navegador al subirlo o, si no, la que genera Drive. Los botones de descargar y
    ampliar suben arriba para no tapar la barra de controles del video. */
-.media .video-player,.media .video-inline{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;object-fit:contain;z-index:1;cursor:default}
+.media .video-player{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;object-fit:contain;z-index:1;cursor:default}
 .media .video-player.is-vertical{object-fit:cover}
+.media .drive-frame{position:absolute;inset:0;overflow:hidden;background:#000;z-index:1}
+.media .drive-frame iframe{position:absolute;top:0;left:0;border:0;transform-origin:0 0}
+/* tapa el botón "abrir en otra ventana" del reproductor de Drive (esquina de arriba a la
+   derecha): la idea es que el video se vea aquí, no en una pestaña nueva */
+.media .drive-frame::after{content:"";position:absolute;top:0;right:0;width:56px;height:56px}
 .media.is-video .media-zoom,.media.is-video .media-dl{top:8px;bottom:auto;z-index:2}
 .media.is-video .media-zoom,.media.is-video .media-dl{opacity:1}
 .media .video-uploading{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -6509,7 +6514,7 @@ function openImageLightbox(src, title, kind){
   const host = $("#modalHost");
   const vid = kind === "video" && extractDriveFileId(src);
   const body = kind === "video"
-    ? (vid ? `<video class="lightbox-video video-player" data-video-id="${esc(vid)}" data-fuente="0" data-fuentes="${esc(JSON.stringify(videoSources(vid)))}" controls autoplay playsinline src="${esc(videoStreamUrl(vid))}" onclick="event.stopPropagation()"></video>`
+    ? (vid && videoLocal.get(vid) ? `<video class="lightbox-video video-player" controls autoplay playsinline src="${esc(videoLocal.get(vid))}" onclick="event.stopPropagation()"></video>`
            : `<iframe class="lightbox-video" src="${esc(src)}" allow="autoplay; fullscreen" allowfullscreen onclick="event.stopPropagation()"></iframe>`)
     : `<img src="${src}" alt="${esc(title || "")}" onclick="event.stopPropagation()">`;
   host.innerHTML = `
@@ -6903,43 +6908,48 @@ function pedirLinkDrive({coll, id, field}){
 function driveVideoThumb(fileId){
   return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1000`;
 }
-/* Reproductor del navegador dentro de la tarjeta, con sus controles (play, tiempo,
-   volumen, pantalla completa) y la miniatura de portada. El archivo se pide directo a
-   Drive (la carpeta es pública), probando en orden: la descarga de drive.usercontent
-   con confirm=t, que se salta el aviso de "no se pudo analizar en busca de virus" que
-   Drive pone a los archivos de más de ~100 MB; y el enlace clásico uc?export=download.
-   Solo si ninguno entrega el video se cambia por el reproductor de Drive, también
-   dentro de la tarjeta, que acomoda peor los videos verticales. */
-function videoSources(fileId){
-  const local = videoLocal.get(fileId);
-  if(local) return [local];
-  const id = encodeURIComponent(fileId);
-  return [`https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`,
-          `https://drive.google.com/uc?export=download&id=${id}`];
-}
-function videoStreamUrl(fileId){ return videoSources(fileId)[0]; }
+/* Reproductor dentro de la tarjeta.
+   Drive no deja que otra página cargue sus videos directo en un <video>: a una petición
+   que viene de otro sitio le responde 403 (comprobado con drive.usercontent y con
+   uc?export=download). Así que:
+   - Recién subido, el video está en esta computadora y se usa el reproductor del
+     navegador, con sus controles.
+   - Si no, va el reproductor de Drive dentro de la tarjeta. Drive acomoda mal un video
+     vertical cuando su marco es chico (lo corre a un lado y deja media tarjeta negra),
+     así que el marco se dibuja grande —720 px de alto, con la forma de la tarjeta— y se
+     reduce con transform hasta el tamaño real del recuadro (fitDriveFrames). */
 function videoPlayerHTML(fileId, poster){
-  const fuentes = videoSources(fileId);
-  return `<video class="video-player" data-video-id="${esc(fileId)}" data-fuente="0" data-fuentes="${esc(JSON.stringify(fuentes))}" controls playsinline preload="metadata"
-    ${poster ? `poster="${esc(poster)}"` : ""} src="${esc(fuentes[0])}"></video>`;
+  const local = videoLocal.get(fileId);
+  if(local) return `<video class="video-player" controls playsinline preload="metadata"
+    ${poster ? `poster="${esc(poster)}"` : ""} src="${esc(local)}"></video>`;
+  return `<div class="drive-frame"><iframe src="https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview"
+    allow="autoplay; fullscreen" allowfullscreen loading="lazy" title="Video"></iframe></div>`;
 }
+const DRIVE_FRAME_H = 720;
+const driveFrameObserver = new ResizeObserver(entries => entries.forEach(en => fitDriveFrame(en.target)));
+function fitDriveFrame(box){
+  const ifr = box.querySelector("iframe");
+  const w = box.clientWidth, h = box.clientHeight;
+  if(!ifr || !w || !h) return;
+  ifr.style.width = Math.round(DRIVE_FRAME_H * w / h) + "px";
+  ifr.style.height = DRIVE_FRAME_H + "px";
+  ifr.style.transform = `scale(${h / DRIVE_FRAME_H})`;
+}
+function fitDriveFrames(){
+  document.querySelectorAll(".drive-frame:not([data-fit])").forEach(box => {
+    box.dataset.fit = "1";
+    driveFrameObserver.observe(box);
+    fitDriveFrame(box);
+  });
+}
+// la vista se repinta entera o por tarjetas sueltas: se ajusta cada marco que aparezca
+new MutationObserver(fitDriveFrames).observe(document.body, {childList:true, subtree:true});
 /* Vertical (más alto que ancho) llena la tarjeta 9:16 sin franjas; horizontal se ve
    entero, con franjas arriba y abajo, para no recortarle los lados. */
 document.addEventListener("loadedmetadata", e => {
   const v = e.target;
   if(v instanceof HTMLVideoElement && v.classList.contains("video-player"))
     v.classList.toggle("is-vertical", v.videoHeight > v.videoWidth);
-}, true);
-document.addEventListener("error", e => {
-  const v = e.target;
-  if(!(v instanceof HTMLVideoElement) || !v.classList.contains("video-player") || v.dataset.fallback) return;
-  let fuentes = [];
-  try{ fuentes = JSON.parse(v.dataset.fuentes || "[]"); }catch(_){}
-  const sig = Number(v.dataset.fuente || 0) + 1;
-  if(sig < fuentes.length){ v.dataset.fuente = sig; v.src = fuentes[sig]; return; }
-  v.dataset.fallback = "1";
-  v.insertAdjacentHTML("afterend", `<iframe class="${v.classList.contains("lightbox-video") ? "lightbox-video" : "video-inline"}" src="https://drive.google.com/file/d/${encodeURIComponent(v.dataset.videoId)}/preview" allow="autoplay; fullscreen" allowfullscreen></iframe>`);
-  v.remove();
 }, true);
 
 function field(labelText, icon, inner, timing=""){
@@ -9570,7 +9580,7 @@ document.addEventListener("click", async e => {
   }
 
   // los controles del reproductor viven dentro del recuadro: tocarlos no es "subir otro"
-  if(t.closest("video.video-player, .video-uploading")) return;
+  if(t.closest("video.video-player, .drive-frame, .video-uploading")) return;
   const driveLink = t.closest("[data-drive-link]");
   if(driveLink){ pedirLinkDrive(driveLink.dataset); return; }
 
