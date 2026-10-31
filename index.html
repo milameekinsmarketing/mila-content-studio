@@ -7734,6 +7734,7 @@ function viewStories(q=""){
     <div class="actions">
       <button class="btn btn-ghost lock-viewer" data-action="new" data-coll="stories"><svg><use href="#i-plus"/></svg> Nueva historia</button>
       <button class="btn btn-ghost lock-viewer" data-action="bulk-stories" title="Elige o arrastra muchas fotos a la vez: cada una se convierte en una historia de este mes"><svg><use href="#i-upload"/></svg> Subir varias fotos</button>
+      <button class="btn btn-ghost lock-viewer lock-editor" data-action="tidy-stories" title="Pone las historias con foto de este mes en orden (Sold-001, Sold-002…) y elimina las que no tienen foto"><svg><use href="#i-filter"/></svg> Ordenar fotos</button>
       <button class="btn btn-gold lock-viewer" data-action="save"><svg><use href="#i-save"/></svg> Guardar Cambios</button>
     </div>
   </div>
@@ -8911,6 +8912,49 @@ function prepareBulkStories(fileList){
   $("#mYes").onclick = () => { close(); bulkUploadStories(files, mes.id, targets.slice(0, llenar).map(s => s.id)); };
 }
 
+/* Número de foto de una historia: el de "Sold-016" si la idea es el nombre del archivo,
+   o el ordinal de "Primera casa vendida", "Segunda casa vendida"… si la foto llenó una
+   historia ya planificada. Sin número, va después de las numeradas. */
+const ORDINALES = ["primera","segunda","tercera","cuarta","quinta","sexta","séptima","octava",
+  "novena","décima","undécima","duodécima","decimotercera","decimocuarta","decimoquinta"];
+function numeroDeFoto(s){
+  const idea = String(s.idea || "").trim().toLowerCase();
+  const m = idea.match(/\d+/);   // el primero: "Sold-016 (1)" es la 16
+  if(m) return Number(m[0]);
+  const ord = ORDINALES.indexOf(idea.split(/\s+/)[0]);
+  return ord >= 0 && /casa vendida/.test(idea) ? ord + 1 : Infinity;
+}
+
+/* Deja el mes que se está viendo como una tira de fotos: las historias con foto en el
+   orden de su número (1, 2, 3…) y sin las que se quedaron vacías. La lista se ordena
+   por fecha de creación (más recientes primero), así que el orden se fija dándole a
+   cada una una fecha: la primera, la más nueva. */
+function tidyStoriesMonth(){
+  if(!guard()) return;
+  const mes = activeContentMonth();
+  const delMes = S.stories.filter(s => s.monthId === mes.id);
+  const conFoto = delMes.filter(s => s.media);
+  const vacias = delMes.filter(s => !s.media);
+  if(!conFoto.length){ toast(`No hay historias con foto en ${mes.label}.`, "alert", true); return; }
+  confirmDialog(`¿Ordenar las historias de ${mes.label}?`,
+    `Las ${conFoto.length} historias con foto quedan en orden, de la 1 a la ${conFoto.length}, según el número de cada foto.${vacias.length ? ` Se eliminan ${vacias.length} historia(s) sin foto de este mes.` : ""} Las fotos no se tocan y los demás meses tampoco.`,
+    () => {
+      const vivas = S.stories.filter(s => s.monthId === mes.id && s.media)
+        .map((s, i) => ({s, i, n: numeroDeFoto(s)}))
+        .sort((a,b) => a.n - b.n || a.i - b.i)   // sin número: se quedan en el orden en que estaban
+        .map(x => x.s);
+      const fuera = new Set(S.stories.filter(s => s.monthId === mes.id && !s.media).map(s => s.id));
+      const top = Math.max(now(), ...S.stories.map(s => s.createdAt || 0));
+      vivas.forEach((s, i) => { s.createdAt = top - i; });
+      S.stories = S.stories.filter(s => !fuera.has(s.id));
+      S.feedMonths.forEach(m => m.slots.forEach((sl, i) => { if(sl && sl.coll === "stories" && fuera.has(sl.id)) m.slots[i] = null; }));
+      reindex("stories");
+      logActivity("ok", `<b>Historias ordenadas:</b> ${vivas.length} con foto en orden en ${esc(mes.label)}${fuera.size ? `, ${fuera.size} vacías eliminadas` : ""}.`);
+      touch(); persist(); render();
+      toast(`${mes.label}: ${vivas.length} historias en orden${fuera.size ? `, ${fuera.size} vacías eliminadas` : ""}.`, "check");
+    }, "Ordenar");
+}
+
 function readAsDataURL(f){
   return new Promise((res, rej) => {
     const fr = new FileReader();
@@ -9068,6 +9112,7 @@ document.addEventListener("click", async e => {
     if(a === "undo"){ undo(); return; }
     if(a === "redo"){ redo(); return; }
     if(a === "new"){ createItem(act.dataset.coll); return; }
+    if(a === "tidy-stories"){ tidyStoriesMonth(); return; }
     if(a === "bulk-stories"){
       if(!guard()) return;
       // el selector se abre aquí, dentro del clic: si antes se pidiera el permiso de
