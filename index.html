@@ -1241,7 +1241,7 @@ const driveEnabled = () => !!(GOOGLE_CLIENT_ID && GOOGLE_DRIVE_FOLDER_ID);
    El token de Metricool NO va aquí: vive en los secretos de Supabase, detrás de la
    Edge Function. Esto es solo la dirección de esa función. Ver
    supabase/functions/programar/INSTRUCCIONES.md. */
-const METRICOOL_FN_URL = "";  // ← pegar la URL de la Edge Function "programar"
+const METRICOOL_FN_URL = "https://rgxxyezzxaqaawswreyl.supabase.co/functions/v1/programar";
 const METRICOOL_TZ = "America/New_York";
 const metricoolEnabled = () => !!METRICOOL_FN_URL;
 
@@ -1386,7 +1386,7 @@ async function uploadBlobToDrive(token, blob, filename, asVideo, onProgress){
    workspace compartido. */
 const BRANDS = [
   {id:"realestate", label:"Real Estate", name:"MILA MEEKINS", sub:"Real Estate",
-   logo:LOGO_GOLD, seeded:true, metricoolBlogId:"",   // ← blogId de esta marca en Metricool
+   logo:LOGO_GOLD, seeded:true, metricoolBlogId:"6774754",   // ← blogId de esta marca en Metricool
    // el Mes 2 son las 90 historias de casas vendidas, una por día de diseño terminado
    quotaMes:{2:{stories:90}},
    profile:{brand:"Mila Meekins", role:"Real Estate Workspace", handle:"milameekins_realestate",
