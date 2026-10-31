@@ -57,6 +57,51 @@ async function metricool(ruta: string, blogId: string, init: RequestInit = {}) {
   try { return JSON.parse(texto); } catch { return texto; }
 }
 
+/* Copia un video de Drive al bucket público "videos" de Supabase Storage y
+   devuelve su enlace, que termina en .mp4. El nombre es el id del archivo de
+   Drive: volver a programar el mismo reel reutiliza la copia. Los videos de más
+   de 60 días se borran aquí mismo para no llenar el 1 GB del plan gratis. */
+const BUCKET = "videos";
+const LIMITE = 50 * 1024 * 1024;
+
+async function copiarVideo(url: string) {
+  const admin = createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+  );
+  const driveId = new URL(url).searchParams.get("id") ?? crypto.randomUUID();
+  const nombre = `${driveId.replace(/[^A-Za-z0-9_-]/g, "")}.mp4`;
+
+  const { data: bucket } = await admin.storage.getBucket(BUCKET);
+  if (!bucket) {
+    const { error } = await admin.storage.createBucket(BUCKET, { public: true });
+    if (error && !/exist/i.test(error.message)) throw error;
+  }
+
+  const publica = admin.storage.from(BUCKET).getPublicUrl(nombre).data.publicUrl;
+  const { data: ya } = await admin.storage.from(BUCKET).list("", { search: nombre });
+  if (ya?.some((f) => f.name === nombre)) return publica;
+
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`Drive respondió ${r.status}`);
+  const tam = Number(r.headers.get("content-length") ?? 0);
+  if (tam > LIMITE) throw new Error(`video de ${Math.round(tam / 1048576)} MB, pasa del límite de 50 MB`);
+  const datos = new Uint8Array(await r.arrayBuffer());
+
+  const { error } = await admin.storage.from(BUCKET)
+    .upload(nombre, datos, { contentType: "video/mp4", upsert: true });
+  if (error) throw error;
+
+  // limpieza de copias viejas
+  const { data: todos } = await admin.storage.from(BUCKET).list("", { limit: 1000 });
+  const corte = Date.now() - 60 * 24 * 3600 * 1000;
+  const viejos = (todos ?? []).filter((f) => f.created_at && Date.parse(f.created_at) < corte)
+    .map((f) => f.name);
+  if (viejos.length) await admin.storage.from(BUCKET).remove(viejos);
+
+  return publica;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return responder({ error: "Solo POST" }, 405);
@@ -113,9 +158,31 @@ Deno.serve(async (req) => {
     }
 
     // Los videos (reels, YouTube) llegan como enlace de descarga directa de Drive.
-    // No pasan por normalize/image, que es solo para imágenes: Metricool los descarga
-    // de esa URL al publicar.
-    const archivos = [...(videos as string[]).filter(Boolean), ...imagenes];
+    // Metricool no reconoce ese enlace como video (no termina en .mp4): normalize lo
+    // devuelve igual y el planificador dice "Preview not available for this url".
+    // Por eso el video se copia primero a Supabase Storage, con un nombre .mp4, y es
+    // ese enlace el que se normaliza y se manda. Si la copia no se puede hacer
+    // (archivo de más de 50 MB en el plan gratis, por ejemplo), queda el de Drive.
+    const listos: string[] = [];
+    for (const url of (videos as string[]).filter(Boolean)) {
+      let fuente = url;
+      try {
+        fuente = await copiarVideo(url);
+      } catch (e) {
+        console.log("copia del video falló →", String(e?.message ?? e).slice(0, 300));
+      }
+      try {
+        const normal = await metricool(
+          `/actions/normalize/image/url?url=${encodeURIComponent(fuente)}`, blogId);
+        const u = typeof normal === "string" ? normal.trim() : JSON.stringify(normal);
+        console.log("video normalize →", u.slice(0, 300));
+        listos.push(u.startsWith("http") ? u : fuente);
+      } catch (e) {
+        console.log("video normalize falló →", String(e?.message ?? e).slice(0, 300));
+        listos.push(fuente);
+      }
+    }
+    const archivos = [...listos, ...imagenes];
 
     // --- 4. Se crea la publicación programada ---
     const cuerpo: Record<string, unknown> = {
@@ -133,6 +200,7 @@ Deno.serve(async (req) => {
       cuerpo.facebookData = { type: tipoFacebook };
     }
 
+    console.log("media enviada →", JSON.stringify(archivos).slice(0, 600));
     const creada = await metricool("/v2/scheduler/posts", blogId, {
       method: "POST",
       body: JSON.stringify(cuerpo),
@@ -141,6 +209,7 @@ Deno.serve(async (req) => {
     return responder({
       ok: true,
       id: creada?.data?.id ?? creada?.id ?? null,
+      media: archivos,
       redes: destinos,
       fecha,
       zona,
