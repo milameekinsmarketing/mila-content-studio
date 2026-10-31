@@ -1187,9 +1187,12 @@ const CONTENT_QUOTA = { posts:8, reels:12, carousels:4, stories:30, youtube:4 };
 
 /* Cupo mensual de la marca que se está viendo. Cada marca puede traer el suyo en
    BRANDS (campo quota); si no lo trae, vale el general de arriba. Así conviven marcas
-   con ritmos distintos dentro de la misma app. */
-function cuotaDe(coll, brandId){
+   con ritmos distintos dentro de la misma app. Y un mes concreto puede tener el suyo
+   (quotaMes, por número de mes: 1, 2, 3…) cuando ese mes se planificó distinto. */
+function cuotaDe(coll, brandId, monthIdx){
   const b = brandById(brandId || activeBrandId);
+  const delMes = monthIdx != null && b.quotaMes && b.quotaMes[monthIdx + 1];
+  if(delMes && delMes[coll] !== undefined) return delMes[coll];
   return (b.quota && b.quota[coll] !== undefined) ? b.quota[coll] : CONTENT_QUOTA[coll];
 }
 
@@ -1339,6 +1342,8 @@ async function uploadBlobToDrive(token, blob, filename, asVideo){
 const BRANDS = [
   {id:"realestate", label:"Real Estate", name:"MILA MEEKINS", sub:"Real Estate",
    logo:LOGO_GOLD, seeded:true, metricoolBlogId:"",   // ← blogId de esta marca en Metricool
+   // el Mes 2 son las 90 historias de casas vendidas, una por día de diseño terminado
+   quotaMes:{2:{stories:90}},
    profile:{brand:"Mila Meekins", role:"Real Estate Workspace", handle:"milameekins_realestate",
             displayName:"Mila Meekins | Luxury Real Estate", bio:"Propiedades. Propósito. Servicio.",
             link:"linktr.ee/milameekins", followers:"12.5K", following:"415",
@@ -3352,126 +3357,6 @@ const CONTENT_STORIES = [
     "mes": 1
   },
   {
-    "num": 241,
-    "pillar": "servicio",
-    "format": "Sobre mí",
-    "idea": "Quién soy: nombre, de dónde vengo y desde cuándo hago real estate. Foto tuya a cámara, texto corto encima.",
-    "days": 1,
-    "mes": 2
-  },
-  {
-    "num": 242,
-    "pillar": "servicio",
-    "format": "Sobre mí",
-    "idea": "Por qué elegí este trabajo: la historia de por qué acompañar a familias a comprar su hogar y no otra cosa.",
-    "days": 2,
-    "mes": 2
-  },
-  {
-    "num": 243,
-    "pillar": "servicio",
-    "format": "Sobre mí",
-    "idea": "Cómo trabajo: los tres pasos con los que acompaño a cada cliente, en una sola pantalla.",
-    "days": 3,
-    "mes": 2
-  },
-  {
-    "num": 244,
-    "pillar": "servicio",
-    "format": "Sobre mí",
-    "idea": "Lo que no hago: no presiono, no empujo a comprar antes de tiempo y digo «espera» cuando toca.",
-    "days": 4,
-    "mes": 2
-  },
-  {
-    "num": 245,
-    "pillar": "servicio",
-    "format": "Sobre mí",
-    "idea": "A quién ayudo mejor: compradores primerizos, familias inmigrantes y quien compra su primera propiedad de inversión.",
-    "days": 5,
-    "mes": 2
-  },
-  {
-    "num": 246,
-    "pillar": "relaciones",
-    "format": "Reseña Google",
-    "idea": "Reseña 1 de Google: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
-    "days": 6,
-    "mes": 2
-  },
-  {
-    "num": 247,
-    "pillar": "relaciones",
-    "format": "Reseña Google",
-    "idea": "Reseña 2 de Google: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
-    "days": 7,
-    "mes": 2
-  },
-  {
-    "num": 248,
-    "pillar": "relaciones",
-    "format": "Reseña Google",
-    "idea": "Reseña 3 de Google: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
-    "days": 8,
-    "mes": 2
-  },
-  {
-    "num": 249,
-    "pillar": "relaciones",
-    "format": "Reseña Google",
-    "idea": "Reseña 4 de Google: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
-    "days": 9,
-    "mes": 2
-  },
-  {
-    "num": 250,
-    "pillar": "relaciones",
-    "format": "Reseña Google",
-    "idea": "Reseña 5 de Google: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
-    "days": 10,
-    "mes": 2
-  },
-  {
-    "num": 251,
-    "pillar": "relaciones",
-    "format": "Reseña Facebook",
-    "idea": "Reseña 1 de Facebook: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
-    "days": 11,
-    "mes": 2
-  },
-  {
-    "num": 252,
-    "pillar": "relaciones",
-    "format": "Reseña Facebook",
-    "idea": "Reseña 2 de Facebook: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
-    "days": 12,
-    "mes": 2
-  },
-  {
-    "num": 253,
-    "pillar": "relaciones",
-    "format": "Reseña Facebook",
-    "idea": "Reseña 3 de Facebook: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
-    "days": 13,
-    "mes": 2
-  },
-  {
-    "num": 254,
-    "pillar": "relaciones",
-    "format": "Reseña Facebook",
-    "idea": "Reseña 4 de Facebook: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
-    "days": 14,
-    "mes": 2
-  },
-  {
-    "num": 255,
-    "pillar": "relaciones",
-    "format": "Reseña Facebook",
-    "idea": "Reseña 5 de Facebook: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
-    "days": 15,
-    "mes": 2
-  },
-  {
     "num": 256,
     "pillar": "patrimonio",
     "format": "Casa vendida",
@@ -4928,81 +4813,186 @@ const RE_COPY_V1 = {
    historia sigue exactamente así, se reemplaza; si la clienta la cambió, se queda. */
 const RE_ST_V1 = {
   "stories": {
-    "241": {
-      "idea": "Encuesta: ¿sabes qué es el PITI de tu pago mensual? Sí / Todavía no",
-      "format": "Encuesta",
-      "pillar": "educacion"
-    },
-    "242": {
-      "idea": "Quiz: ¿cuál de estas tres NO afecta tu score de crédito?",
-      "format": "Quiz",
-      "pillar": "educacion"
-    },
-    "243": {
-      "idea": "Tip: guarda tu carta de pre-aprobación en el celular. Se pide más de lo que crees.",
-      "format": "Tip",
-      "pillar": "educacion"
-    },
-    "244": {
-      "idea": "Pregunta abierta: ¿qué término inmobiliario te sigue sonando a otro idioma?",
-      "format": "Pregunta",
-      "pillar": "educacion"
-    },
-    "245": {
-      "idea": "Encuesta: ¿sabías que tu cuota puede subir con tasa fija? Sí / No tenía idea",
-      "format": "Encuesta",
-      "pillar": "educacion"
-    },
-    "246": {
-      "idea": "Mito del día: «La inspección garantiza que la casa está bien.» Verdadero / Falso",
-      "format": "Mito",
-      "pillar": "educacion"
-    },
-    "247": {
-      "idea": "Tip: pide siempre el reporte completo de inspección, no solo el resumen.",
-      "format": "Tip",
-      "pillar": "educacion"
-    },
-    "248": {
-      "idea": "Encuesta: antes de comprar, ¿qué te preocupa más? El pago mensual / Los costos de entrada",
-      "format": "Encuesta",
-      "pillar": "educacion"
-    },
-    "249": {
-      "idea": "Pregunta: ¿ya sabes cuánto pagarías al mes de impuestos de propiedad en tu zona?",
-      "format": "Pregunta",
-      "pillar": "educacion"
-    },
-    "250": {
-      "idea": "Dato: los primeros días de un anuncio son los que más visitas traen. Por eso el precio inicial importa tanto.",
-      "format": "Dato",
-      "pillar": "educacion"
-    },
-    "251": {
-      "idea": "Encuesta: ¿vivienda con HOA o sin HOA? Y cuéntame por qué.",
-      "format": "Encuesta",
-      "pillar": "educacion"
-    },
-    "252": {
-      "idea": "Tip: no financies muebles antes del cierre. Es la causa número uno de sustos de última hora.",
-      "format": "Tip",
-      "pillar": "educacion"
-    },
-    "253": {
-      "idea": "Pregunta: si compraras para rentar, ¿buscarías flujo mensual o apreciación?",
-      "format": "Pregunta",
-      "pillar": "patrimonio"
-    },
-    "254": {
-      "idea": "Encuesta: ¿cuántos meses de reserva crees que hacen falta para una propiedad de renta?",
-      "format": "Encuesta",
-      "pillar": "patrimonio"
-    },
-    "255": {
-      "idea": "Dato: la vacancia es el gasto que más gente olvida al calcular una inversión.",
-      "format": "Dato",
-      "pillar": "patrimonio"
-    },
+    "241": [
+      {
+        "idea": "Encuesta: ¿sabes qué es el PITI de tu pago mensual? Sí / Todavía no",
+        "format": "Encuesta",
+        "pillar": "educacion"
+      },
+      {
+        "idea": "Quién soy: nombre, de dónde vengo y desde cuándo hago real estate. Foto tuya a cámara, texto corto encima.",
+        "format": "Sobre mí",
+        "pillar": "servicio"
+      }
+    ],
+    "242": [
+      {
+        "idea": "Quiz: ¿cuál de estas tres NO afecta tu score de crédito?",
+        "format": "Quiz",
+        "pillar": "educacion"
+      },
+      {
+        "idea": "Por qué elegí este trabajo: la historia de por qué acompañar a familias a comprar su hogar y no otra cosa.",
+        "format": "Sobre mí",
+        "pillar": "servicio"
+      }
+    ],
+    "243": [
+      {
+        "idea": "Tip: guarda tu carta de pre-aprobación en el celular. Se pide más de lo que crees.",
+        "format": "Tip",
+        "pillar": "educacion"
+      },
+      {
+        "idea": "Cómo trabajo: los tres pasos con los que acompaño a cada cliente, en una sola pantalla.",
+        "format": "Sobre mí",
+        "pillar": "servicio"
+      }
+    ],
+    "244": [
+      {
+        "idea": "Pregunta abierta: ¿qué término inmobiliario te sigue sonando a otro idioma?",
+        "format": "Pregunta",
+        "pillar": "educacion"
+      },
+      {
+        "idea": "Lo que no hago: no presiono, no empujo a comprar antes de tiempo y digo «espera» cuando toca.",
+        "format": "Sobre mí",
+        "pillar": "servicio"
+      }
+    ],
+    "245": [
+      {
+        "idea": "Encuesta: ¿sabías que tu cuota puede subir con tasa fija? Sí / No tenía idea",
+        "format": "Encuesta",
+        "pillar": "educacion"
+      },
+      {
+        "idea": "A quién ayudo mejor: compradores primerizos, familias inmigrantes y quien compra su primera propiedad de inversión.",
+        "format": "Sobre mí",
+        "pillar": "servicio"
+      }
+    ],
+    "246": [
+      {
+        "idea": "Mito del día: «La inspección garantiza que la casa está bien.» Verdadero / Falso",
+        "format": "Mito",
+        "pillar": "educacion"
+      },
+      {
+        "idea": "Reseña 1 de Google: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
+        "format": "Reseña Google",
+        "pillar": "relaciones"
+      }
+    ],
+    "247": [
+      {
+        "idea": "Tip: pide siempre el reporte completo de inspección, no solo el resumen.",
+        "format": "Tip",
+        "pillar": "educacion"
+      },
+      {
+        "idea": "Reseña 2 de Google: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
+        "format": "Reseña Google",
+        "pillar": "relaciones"
+      }
+    ],
+    "248": [
+      {
+        "idea": "Encuesta: antes de comprar, ¿qué te preocupa más? El pago mensual / Los costos de entrada",
+        "format": "Encuesta",
+        "pillar": "educacion"
+      },
+      {
+        "idea": "Reseña 3 de Google: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
+        "format": "Reseña Google",
+        "pillar": "relaciones"
+      }
+    ],
+    "249": [
+      {
+        "idea": "Pregunta: ¿ya sabes cuánto pagarías al mes de impuestos de propiedad en tu zona?",
+        "format": "Pregunta",
+        "pillar": "educacion"
+      },
+      {
+        "idea": "Reseña 4 de Google: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
+        "format": "Reseña Google",
+        "pillar": "relaciones"
+      }
+    ],
+    "250": [
+      {
+        "idea": "Dato: los primeros días de un anuncio son los que más visitas traen. Por eso el precio inicial importa tanto.",
+        "format": "Dato",
+        "pillar": "educacion"
+      },
+      {
+        "idea": "Reseña 5 de Google: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
+        "format": "Reseña Google",
+        "pillar": "relaciones"
+      }
+    ],
+    "251": [
+      {
+        "idea": "Encuesta: ¿vivienda con HOA o sin HOA? Y cuéntame por qué.",
+        "format": "Encuesta",
+        "pillar": "educacion"
+      },
+      {
+        "idea": "Reseña 1 de Facebook: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
+        "format": "Reseña Facebook",
+        "pillar": "relaciones"
+      }
+    ],
+    "252": [
+      {
+        "idea": "Tip: no financies muebles antes del cierre. Es la causa número uno de sustos de última hora.",
+        "format": "Tip",
+        "pillar": "educacion"
+      },
+      {
+        "idea": "Reseña 2 de Facebook: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
+        "format": "Reseña Facebook",
+        "pillar": "relaciones"
+      }
+    ],
+    "253": [
+      {
+        "idea": "Pregunta: si compraras para rentar, ¿buscarías flujo mensual o apreciación?",
+        "format": "Pregunta",
+        "pillar": "patrimonio"
+      },
+      {
+        "idea": "Reseña 3 de Facebook: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
+        "format": "Reseña Facebook",
+        "pillar": "relaciones"
+      }
+    ],
+    "254": [
+      {
+        "idea": "Encuesta: ¿cuántos meses de reserva crees que hacen falta para una propiedad de renta?",
+        "format": "Encuesta",
+        "pillar": "patrimonio"
+      },
+      {
+        "idea": "Reseña 4 de Facebook: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
+        "format": "Reseña Facebook",
+        "pillar": "relaciones"
+      }
+    ],
+    "255": [
+      {
+        "idea": "Dato: la vacancia es el gasto que más gente olvida al calcular una inversión.",
+        "format": "Dato",
+        "pillar": "patrimonio"
+      },
+      {
+        "idea": "Reseña 5 de Facebook: captura de la reseña real (más antigua sin publicar). Súbela como imagen y agrega arriba el nombre del cliente si dio permiso.",
+        "format": "Reseña Facebook",
+        "pillar": "relaciones"
+      }
+    ],
     "256": {
       "idea": "Pregunta abierta: ¿qué te frena hoy de dar el paso a una segunda propiedad?",
       "format": "Pregunta",
@@ -5801,7 +5791,7 @@ function mergeIntoSeed(data, brandId = activeBrandId){
      existiera: se carga UNA sola vez y solo si no hay ninguna pieza, así que nunca
      pisa trabajo hecho. La marca queda marcada para no volver a hacerlo si algún día
      se vacía a propósito. */
-  const CONTENT_STAMP = { finanzas: "bloque-01-tomas", realestate: "mes-03-completo-b",
+  const CONTENT_STAMP = { finanzas: "bloque-01-tomas", realestate: "mes-02-90-historias",
                           escapadita: "mes-01-v8" };
   const stamp = CONTENT_STAMP[brandId];
   if(stamp && merged.contentStamp !== stamp){
@@ -6994,9 +6984,9 @@ function contentMonthCount(coll, monthId){
   return (S[coll] || []).filter(x => x.monthId === monthId).length;
 }
 function contentMonthsTabsHTML(coll){
-  const quota = cuotaDe(coll);
   return `<div class="feed-months">
     ${S.contentMonths.map((m, mi) => {
+      const quota = cuotaDe(coll, null, mi);
       const active = mi === S.ui.contentMonth;
       const count = contentMonthCount(coll, m.id);
       return `<div class="month-tab ${active ? "active" : ""}" data-content-month-tab="${mi}">
@@ -8457,7 +8447,7 @@ function matches(x, q){
    mensual real de ese formato — ej. "3/30" en Historias. Ya no es el total de piezas
    que existen, sino el avance real del mes que se está viendo. */
 function navReadyLabel(coll){
-  const quota = cuotaDe(coll);
+  const quota = cuotaDe(coll, null, S.ui.contentMonth);
   if(!quota && !usaMeses(coll)) return String(S[coll].length);
   const monthId = activeContentMonth()?.id;
   const delMes = (S[coll] || []).filter(it => it.monthId === monthId);
