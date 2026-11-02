@@ -657,9 +657,23 @@ html.detalle-abierto{overflow:hidden}
 .redes-nota{font-size:11px;color:var(--muted)}
 .redes-vol{display:flex;flex-wrap:wrap;gap:6px 18px;padding:2px 4px 4px 144px;font-size:11.5px;color:var(--muted)}
 .redes-vol label{display:flex;align-items:center;gap:8px}
-/* en la tarjeta angosta de la historia la etiqueta va arriba del valor */
-.para-redes.compacta{margin:8px 0 4px}
-.para-redes.compacta .redes-elegir{flex-direction:column;align-items:flex-start;gap:3px;padding:8px 10px}
+/* en la tarjeta angosta de la historia: una línea plegable, letra más chica */
+.para-redes.compacta{margin:6px 0 2px;gap:5px;border:1px solid var(--line);border-radius:10px;padding:0 8px;background:#fff}
+.para-redes.compacta[open]{padding-bottom:8px}
+.para-redes.compacta summary{list-style:none;display:flex;align-items:center;gap:7px;padding:7px 0;cursor:pointer;font-size:12px;min-width:0}
+.para-redes.compacta summary::-webkit-details-marker{display:none}
+.redes-sum-ico{color:var(--gold-deep);font-size:13px;flex:none}
+.redes-sum-txt{flex:1;min-width:0;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.redes-sum-txt.vacio{color:var(--muted)}
+.para-redes.compacta summary .chev{width:14px;height:14px;color:var(--muted);flex:none;transform:rotate(180deg);transition:transform .15s}
+.para-redes.compacta[open] summary .chev{transform:none}
+.para-redes.compacta .redes-elegir{flex-direction:column;align-items:flex-start;gap:2px;padding:6px 9px;border-radius:9px}
+.para-redes.compacta .redes-lbl{font-size:9px}
+.para-redes.compacta .redes-val{font-size:12px}
+.para-redes.compacta .redes-val img{width:20px;height:20px}
+.para-redes.compacta .redes-vol{font-size:10.5px}
+.para-redes.compacta{display:block}
+.para-redes.compacta > .redes-elegir,.para-redes.compacta > .redes-elegido{width:100%;box-sizing:border-box;margin-top:5px}
 .para-redes.compacta .redes-lbl{width:auto}
 .para-redes.compacta .redes-val{max-width:100%}
 .para-redes.compacta .redes-vol{padding-left:2px;flex-direction:column;gap:4px}
@@ -8538,9 +8552,25 @@ document.addEventListener("input", e => {
 /* Música en reels e historias. Las historias no llevan ubicación: Instagram no deja
    ponerle el sticker de lugar a una historia programada desde fuera de su app. */
 const LLEVA_MUSICA = coll => coll === "reels" || coll === "stories";
+/* En la historia la música va plegada en una sola línea para que la tarjeta no crezca.
+   Qué historias están abiertas vive aquí, no en S: así sobrevive a cada repintado. */
+const musicaAbierta = new Set();
+document.addEventListener("toggle", e => {
+  const d = e.target;
+  if(!(d instanceof HTMLDetailsElement) || !d.dataset.plegable) return;
+  d.open ? musicaAbierta.add(d.dataset.plegable) : musicaAbierta.delete(d.dataset.plegable);
+}, true);
 function paraRedesHTML(coll, it){
   const historia = coll === "stories";
-  return `<div class="para-redes ${historia ? "compacta" : ""}">
+  if(historia){
+    const elegidas = [it.musicaIg && `IG: ${it.musicaIg.title}`, it.musicaTiktok && `TikTok: ${it.musicaTiktok.title}`].filter(Boolean);
+    return `<details class="para-redes compacta" data-plegable="${it.id}" ${musicaAbierta.has(it.id) ? "open" : ""}>
+      <summary><span class="redes-sum-ico">♪</span><span class="redes-sum-txt ${elegidas.length ? "" : "vacio"}">${esc(elegidas.join(" · ") || "Agregar música")}</span><svg class="chev"><use href="#i-chev"/></svg></summary>
+      ${seleccionHTML(coll, it, "musicaIg", "Instagram", "Elegir canción…")}
+      ${seleccionHTML(coll, it, "musicaTiktok", "TikTok", "Elegir de las tendencias…")}
+    </details>`;
+  }
+  return `<div class="para-redes">
     <div class="label"><svg><use href="#i-feed"/></svg> ${historia ? "Música" : "Para redes"}</div>
     ${LLEVA_MUSICA(coll) ? seleccionHTML(coll, it, "musicaIg", "Música · Instagram", "Elegir canción…") : ""}
     ${LLEVA_MUSICA(coll) ? seleccionHTML(coll, it, "musicaTiktok", "Música · TikTok", "Elegir de las tendencias…") : ""}
