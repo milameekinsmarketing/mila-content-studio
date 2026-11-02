@@ -6314,9 +6314,10 @@ function updateCloudStatus(){
 async function loadFromCloud(){
   if(!sbClient){ S = load(); historyReset(); cloudSyncOK = false; return; }
   try{
-    const { data, error } = await sbClient.from("workspace_state").select("data").eq("id", WORKSPACE_ID).maybeSingle();
+    const { data, error } = await sbClient.from("workspace_state").select("data,updated_at").eq("id", WORKSPACE_ID).maybeSingle();
     if(error) throw error;
     if(data && data.data){
+      cloudBase = structuredClone(data.data); cloudStamp = data.updated_at;
       S = unpackWorkspace(data.data);
       historyReset();
       localStorage.setItem(KEY, JSON.stringify(packWorkspace()));
@@ -6347,18 +6348,125 @@ async function loadFromCloud(){
      tiempo real de ese mismo guardado no se tome como un cambio de otra persona. */
 const cloudPushed = new Set();
 let cloudPending = false, cloudRetryTimer = null, cloudFailWarned = false;
+
+/* Dos pestañas (o dos computadoras) abiertas a la vez.
+   La nube guarda el workspace entero en una fila, y antes ganaba el último guardado:
+   una pestaña vieja con un cambio suelto subía su copia encima y borraba lo que la otra
+   había agregado. Ahora cada pestaña recuerda la versión de la nube de la que partió
+   (cloudBase / cloudStamp). Antes de guardar mira si la nube cambió desde entonces y, si
+   cambió, COMBINA en vez de pisar:
+   - lo que solo cambió una de las dos versiones, se queda con ese cambio;
+   - las piezas, láminas y meses se cruzan por su id: las nuevas de cualquiera de las
+     dos se suman, y una pieza borrada solo se va si la otra versión no la tocó;
+   - si las dos cambiaron el mismo texto, gana el de esta pestaña (es lo último escrito).
+   El guardado sale solo si la nube sigue en la versión que se combinó; si alguien guardó
+   justo en medio, se vuelve a combinar con eso. */
+let cloudBase = null, cloudStamp = null, cloudChoques = 0;
+const mismoValor = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const esObjeto = v => v !== null && typeof v === "object" && !Array.isArray(v);
+const conIds = v => Array.isArray(v) && v.every(x => esObjeto(x) && typeof x.id === "string");
+
+function fusionar3(base, mio, otro){
+  if(mismoValor(mio, otro)) return mio;
+  if(mismoValor(mio, base)) return otro;
+  if(mismoValor(otro, base)) return mio;
+  if(conIds(mio) && conIds(otro) && (mio.length || otro.length)){
+    return fusionarLista(conIds(base) ? base : [], mio, otro);
+  }
+  if(esObjeto(mio) && esObjeto(otro)){
+    const b = esObjeto(base) ? base : {};
+    const out = {};
+    for(const k of new Set([...Object.keys(mio), ...Object.keys(otro)])){
+      const v = fusionar3(b[k], mio[k], otro[k]);
+      if(v !== undefined) out[k] = v;
+    }
+    return out;
+  }
+  return mio;
+}
+
+function fusionarLista(base, mio, otro){
+  const porId = arr => new Map(arr.map(x => [x.id, x]));
+  const B = porId(base), M = porId(mio), O = porId(otro);
+  const out = [];
+  for(const x of mio){
+    if(O.has(x.id)) out.push(fusionar3(B.get(x.id), x, O.get(x.id)));
+    else if(!B.has(x.id) || !mismoValor(x, B.get(x.id))) out.push(x); // nueva aquí, o la otra la borró pero aquí se editó
+  }
+  otro.forEach((x, i) => {
+    if(M.has(x.id)) return;
+    if(B.has(x.id) && mismoValor(x, B.get(x.id))) return;          // se borró aquí y allá nadie la tocó
+    let pos = 0;                                                     // va detrás de la que la precede allá
+    for(let j = i - 1; j >= 0; j--){
+      const k = out.findIndex(y => y.id === otro[j].id);
+      if(k >= 0){ pos = k + 1; break; }
+    }
+    out.splice(pos, 0, x);
+  });
+  return out;
+}
+
+/* Pone en pantalla el workspace combinado sin mover a nadie de donde está (vista, rol,
+   filtros y mes son de este navegador). */
+function aplicarCombinado(datos){
+  const ui = S.ui;
+  S = unpackWorkspace(structuredClone(datos));
+  S.ui = ui;
+  if(S.ui.contentMonth >= (S.contentMonths || []).length) S.ui.contentMonth = 0;
+  if(S.ui.feedMonth >= (S.feedMonths || []).length) S.ui.feedMonth = 0;
+  historyReset();
+  try{ localStorage.setItem(KEY, JSON.stringify(packWorkspace())); }catch(e){}
+  render();
+  toast("Se sumaron cambios guardados desde otra pestaña o computadora", "history");
+}
+
 async function syncToCloud(){
   if(!sbClient || !currentUser) return;
   if(cloudSaveInFlight){ cloudPending = true; return; }
   cloudSaveInFlight = true;
   updateSaveState();
   try{
+    const tabla = sbClient.from("workspace_state");
+    const { data: fila, error: errHora } = await sbClient.from("workspace_state")
+      .select("updated_at").eq("id", WORKSPACE_ID).maybeSingle();
+    if(errHora) throw errHora;
+    let remoto = null;
+    if(fila && (!cloudStamp || Date.parse(fila.updated_at) !== Date.parse(cloudStamp))){
+      const { data: completa, error: errDatos } = await sbClient.from("workspace_state")
+        .select("data,updated_at").eq("id", WORKSPACE_ID).maybeSingle();
+      if(errDatos) throw errDatos;
+      remoto = completa;
+    }
+    // la copia de esta pestaña se toma DESPUÉS de leer la nube: lo escrito mientras
+    // tanto también entra
+    const mio = structuredClone(packWorkspace());
+    let datos = mio;
+    if(remoto && remoto.data){
+      datos = fusionar3(cloudBase || {}, mio, remoto.data);
+      if(!mismoValor(datos, mio)) aplicarCombinado(datos);
+    }
     const stamp = new Date().toISOString();
     cloudPushed.add(Date.parse(stamp));
-    const { error } = await sbClient.from("workspace_state").upsert({
-      id: WORKSPACE_ID, data: packWorkspace(), updated_at: stamp, updated_by: currentUser.id
-    });
+    const fila2 = { data: datos, updated_at: stamp, updated_by: currentUser.id };
+    let error, guardadas = 1;
+    if(fila && cloudChoques < 3){
+      const horaLeida = remoto ? remoto.updated_at : fila.updated_at;
+      const r = await tabla.update(fila2).eq("id", WORKSPACE_ID).eq("updated_at", horaLeida).select("id");
+      error = r.error; guardadas = (r.data || []).length;
+    }else{
+      ({ error } = await tabla.upsert(Object.assign({ id: WORKSPACE_ID }, fila2)));
+    }
     if(error) throw error;
+    if(!guardadas){
+      // otra pestaña guardó entre la lectura y la escritura: se repite combinando con eso.
+      // Tras tres choques seguidos se guarda sin condición, para no quedar en un bucle.
+      cloudChoques++;
+      cloudStamp = null;
+      if(remoto && remoto.data) cloudBase = remoto.data;
+      cloudPending = true;
+      return;
+    }
+    cloudBase = datos; cloudStamp = stamp; cloudChoques = 0;
     clearTimeout(cloudRetryTimer);
     if(cloudFailWarned){ cloudFailWarned = false; toast("Guardado en la nube ✓", "check"); }
     if(!cloudSyncOK){ cloudSyncOK = true; updateCloudStatus(); }
@@ -6390,7 +6498,9 @@ function subscribeRealtime(){
       // app abierta en dos pestañas (o dos computadoras) con la misma cuenta, cada una
       // ignoraba lo que guardaba la otra y al guardar la pisaba con su versión vieja.
       if(cloudPushed.has(Date.parse(incoming.updated_at))) return;
-      if(dirty || cloudSaveInFlight) return; // hay ediciones locales sin guardar: no se pisan
+      // hay ediciones locales sin guardar: no se pisan; el próximo guardado las combina
+      if(dirty || cloudSaveInFlight) return;
+      cloudBase = structuredClone(incoming.data); cloudStamp = incoming.updated_at;
       S = unpackWorkspace(incoming.data);
       historyReset();
       localStorage.setItem(KEY, JSON.stringify(packWorkspace()));
