@@ -657,6 +657,14 @@ html.detalle-abierto{overflow:hidden}
 .redes-nota{font-size:11px;color:var(--muted)}
 .redes-vol{display:flex;flex-wrap:wrap;gap:6px 18px;padding:2px 4px 4px 144px;font-size:11.5px;color:var(--muted)}
 .redes-vol label{display:flex;align-items:center;gap:8px}
+/* en la tarjeta angosta de la historia la etiqueta va arriba del valor */
+.para-redes.compacta{margin:8px 0 4px}
+.para-redes.compacta .redes-elegir{flex-direction:column;align-items:flex-start;gap:3px;padding:8px 10px}
+.para-redes.compacta .redes-lbl{width:auto}
+.para-redes.compacta .redes-val{max-width:100%}
+.para-redes.compacta .redes-vol{padding-left:2px;flex-direction:column;gap:4px}
+.para-redes.compacta .redes-vol label{justify-content:space-between}
+.para-redes.compacta .redes-vol input{flex:1;width:auto;min-width:0}
 .redes-vol input{width:110px;accent-color:var(--gold-deep)}
 .redes-vol b{font-weight:500;color:var(--navy);min-width:32px}
 @media (max-width:700px){.redes-vol{padding-left:4px}}
@@ -6609,8 +6617,8 @@ async function enviarAMetricool(coll, id, {fechaSolo, horaSolo, redes, borrador=
     tipoInstagram: PROG_IG_TYPE[coll],
     tipoFacebook: PROG_FB_TYPE[coll],
     ubicacion: it.ubicacion || null,
-    audioIg: coll === "reels" ? (it.musicaIg || null) : null,
-    musicaTiktok: coll === "reels" ? (it.musicaTiktok || null) : null,
+    audioIg: LLEVA_MUSICA(coll) ? (it.musicaIg || null) : null,
+    musicaTiktok: LLEVA_MUSICA(coll) ? (it.musicaTiktok || null) : null,
     portada: video && it.cover && /^https?:/.test(it.cover) ? it.cover : ""
   });
   // se vuelve a buscar: mientras Metricool respondía, la vista pudo recargarse
@@ -8391,6 +8399,7 @@ function storyCard(s, i){
     </div>
     <div class="story-body">
       ${field("Idea original","list", textarea("stories", s.id, "idea", s.idea, "La idea de esta historia...", "", 2))}
+      ${paraRedesHTML("stories", s)}
       <div class="story-foot">
         ${scheduleBtnHTML("stories", s.id)}
         ${reviewCheckHTML("stories", s.id, !!s.reviewed)}
@@ -8526,13 +8535,17 @@ document.addEventListener("input", e => {
   r.nextElementSibling.textContent = r.value + "%";
   touch();
 });
+/* Música en reels e historias. Las historias no llevan ubicación: Instagram no deja
+   ponerle el sticker de lugar a una historia programada desde fuera de su app. */
+const LLEVA_MUSICA = coll => coll === "reels" || coll === "stories";
 function paraRedesHTML(coll, it){
-  return `<div class="para-redes">
-    <div class="label"><svg><use href="#i-feed"/></svg> Para redes</div>
-    ${coll === "reels" ? seleccionHTML(coll, it, "musicaIg", "Música · Instagram", "Elegir canción…") : ""}
-    ${coll === "reels" ? seleccionHTML(coll, it, "musicaTiktok", "Música · TikTok", "Elegir de las tendencias…") : ""}
-    ${seleccionHTML(coll, it, "ubicacion", "Ubicación", "Buscar lugar…")}
-    <small class="redes-nota">Se mandan con la publicación al programarla en Metricool${coll === "reels" ? ", junto con la portada" : ""}.</small>
+  const historia = coll === "stories";
+  return `<div class="para-redes ${historia ? "compacta" : ""}">
+    <div class="label"><svg><use href="#i-feed"/></svg> ${historia ? "Música" : "Para redes"}</div>
+    ${LLEVA_MUSICA(coll) ? seleccionHTML(coll, it, "musicaIg", "Música · Instagram", "Elegir canción…") : ""}
+    ${LLEVA_MUSICA(coll) ? seleccionHTML(coll, it, "musicaTiktok", "Música · TikTok", "Elegir de las tendencias…") : ""}
+    ${historia ? "" : seleccionHTML(coll, it, "ubicacion", "Ubicación", "Buscar lugar…")}
+    <small class="redes-nota">Se ${historia ? "manda con la historia" : "mandan con la publicación"} al programarla en Metricool${coll === "reels" ? ", junto con la portada" : ""}.</small>
   </div>`;
 }
 

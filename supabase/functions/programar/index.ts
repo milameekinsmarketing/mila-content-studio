@@ -217,8 +217,8 @@ Deno.serve(async (req) => {
     };
     if (tipoInstagram && destinos.includes("instagram")) {
       const ig: Record<string, unknown> = { type: tipoInstagram };
-      // la música de Instagram solo se le pone a los reels
-      if (audioIg?.audioId && tipoInstagram === "REEL") {
+      // la música de Instagram va en reels e historias
+      if (audioIg?.audioId && (tipoInstagram === "REEL" || tipoInstagram === "STORY")) {
         ig.audioConfiguration = audioIg;
         ig.audioName = audioIg.title;
       }
