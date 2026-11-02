@@ -579,6 +579,16 @@ button.mover-op:hover{border-color:var(--gold);background:var(--gold-pale)}
 .media-zoom:hover,.media-dl:hover{background:var(--navy)}
 @media (hover:none){.media-zoom,.media-dl{opacity:1}}
 
+/* Portada elegida de un cuadro del mismo video */
+.modal.modal-fotograma{max-width:420px}
+.fotograma-vista{position:relative;height:min(58vh,540px);aspect-ratio:9/16;margin:0 auto 14px;border-radius:14px;overflow:hidden;background:#000}
+.fotograma-vista video{width:100%;height:100%;object-fit:contain;display:block}
+.fotograma-carga{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  padding:22px;background:rgba(26,30,57,.86);color:#fff;font-size:12.5px;line-height:1.5;text-align:center}
+.fotograma-carga b{font-size:22px}
+#fgBarra{width:100%;accent-color:var(--gold-deep)}
+.fotograma-tiempo{font-size:12px;color:var(--muted);text-align:center;margin:2px 0 16px}
+
 /* Lightbox en modo video */
 .lightbox.is-video{width:min(1100px,92vw)}
 .lightbox-video{width:100%;aspect-ratio:16/9;border:0;border-radius:12px;background:#000;display:block}
@@ -7504,6 +7514,137 @@ function pedirLinkDrive({coll, id, field}){
     touch(); render(); toast("Video conectado", "check");
   };
 }
+/* Portada sacada de un cuadro del mismo video, como deja hacerlo Instagram.
+   El cuadro se guarda como imagen de portada (en Drive, igual que una portada subida),
+   así que se ve en el Feed Preview y es la que se manda a Metricool como miniatura del
+   reel: esa es la que queda en el feed de Instagram.
+   Para dibujar un cuadro hace falta el archivo del video en esta computadora: el que se
+   acaba de subir ya está; si no, se descarga de Drive con el permiso de la app. Drive
+   solo deja descargar los videos que subió la app: para uno conectado con link se pide
+   el archivo desde la computadora. */
+async function elegirPortadaDelVideo(id){
+  if(!guard()) return;
+  const r = find("reels", id);
+  if(!r || !r.video) return;
+  const fileId = extractDriveFileId(r.video);
+  const auth = await requestDriveAuth();
+  const host = $("#modalHost");
+  const ctrl = new AbortController();
+  host.innerHTML = `
+    <div class="modal-bg" data-close>
+      <div class="modal modal-fotograma" role="dialog" aria-modal="true">
+        <h3>Portada del video</h3>
+        <p>Mueve la barra hasta el cuadro que quieres de portada. Es la imagen que se verá en el feed de Instagram.</p>
+        <div class="fotograma-vista">
+          <video id="fgVideo" muted playsinline preload="auto"></video>
+          <div class="fotograma-carga" id="fgCarga"><span>Cargando el video…</span><b>0%</b></div>
+        </div>
+        <input type="range" id="fgBarra" min="0" max="1" step="0.01" value="0" disabled aria-label="Cuadro del video">
+        <div class="fotograma-tiempo" id="fgTiempo">0:00.0</div>
+        <div class="row">
+          <button class="btn btn-ghost" data-close>Cancelar</button>
+          <button class="btn btn-gold" id="fgUsar" disabled>Usar este cuadro</button>
+        </div>
+      </div>
+    </div>`;
+  const cerrar = () => { ctrl.abort(); host.innerHTML = ""; };
+  host.onclick = e => { if(e.target.hasAttribute("data-close")) cerrar(); };
+  const v = $("#fgVideo"), barra = $("#fgBarra"), carga = $("#fgCarga"), usar = $("#fgUsar"), tiempo = $("#fgTiempo");
+  const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}.${Math.floor((t % 1) * 10)}`;
+
+  const mostrar = src => {
+    v.onloadedmetadata = () => {
+      barra.max = v.duration; barra.step = 1 / 30;
+      const ms = Number(r.coverMs);
+      v.currentTime = barra.value = ms > 0 && ms / 1000 < v.duration ? ms / 1000 : Math.min(1, v.duration * .1);
+    };
+    v.onseeked = () => {
+      carga.style.display = "none";
+      barra.disabled = usar.disabled = false;
+      tiempo.textContent = fmt(v.currentTime);
+    };
+    v.onerror = () => {
+      carga.innerHTML = `<span>Este navegador no puede abrir el formato de este video para sacar la portada. Sube la portada como imagen.</span>`;
+    };
+    v.src = src;
+  };
+  barra.oninput = () => { v.currentTime = Number(barra.value); tiempo.textContent = fmt(v.currentTime); };
+
+  // sin el archivo en Drive al alcance, se pide el mismo video desde la computadora
+  const pedirArchivo = motivo => {
+    carga.innerHTML = `<span>${esc(motivo)}</span>
+      <button type="button" class="btn btn-gold btn-sm" id="fgArchivo">Elegir el archivo del video</button>`;
+    $("#fgArchivo").onclick = () => {
+      const inp = $("#filePicker");
+      inp.value = ""; inp.accept = "video/*";
+      inp.onchange = () => {
+        const f = inp.files && inp.files[0];
+        if(!f) return;
+        carga.innerHTML = `<span>Abriendo el video…</span>`;
+        mostrar(URL.createObjectURL(f));
+      };
+      inp.click();
+    };
+  };
+
+  if(fileId && videoLocal.has(fileId)) mostrar(videoLocal.get(fileId));
+  else if(!fileId || !auth.token){
+    pedirArchivo(auth.failed ? "No se pudo autorizar Google Drive para traer el video." : "El video no está en Google Drive.");
+  }else{
+    try{
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
+        { headers: { Authorization: `Bearer ${auth.token}` }, signal: ctrl.signal });
+      if(!res.ok) throw new Error("HTTP " + res.status);
+      const total = Number(res.headers.get("Content-Length")) || 0;
+      const lector = res.body.getReader(), partes = [];
+      let llevo = 0;
+      for(;;){
+        const { done, value } = await lector.read();
+        if(done) break;
+        partes.push(value); llevo += value.length;
+        if(total) carga.querySelector("b").textContent = Math.round(llevo / total * 100) + "%";
+      }
+      const blob = new Blob(partes, { type: res.headers.get("Content-Type") || "video/mp4" });
+      // queda en esta computadora: la tarjeta lo reproduce desde aquí y la próxima vez abre al instante
+      const local = URL.createObjectURL(blob);
+      videoLocal.set(fileId, local);
+      mostrar(local);
+    }catch(e){
+      if(ctrl.signal.aborted) return;
+      console.warn("No se pudo traer el video de Drive", e);
+      pedirArchivo("Drive no deja que la app descargue este video (pasa con los que se conectaron con un link). Elige el mismo archivo desde tu computadora.");
+    }
+  }
+
+  usar.onclick = async () => {
+    usar.disabled = barra.disabled = true;
+    usar.textContent = "Guardando…";
+    try{
+      const scale = Math.min(1, 1080 / (v.videoWidth || 1080));
+      const c = document.createElement("canvas");
+      c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
+      c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+      const cuadro = c.toDataURL("image/jpeg", .9);
+      let url = cuadro;
+      if(auth.token){
+        url = await uploadToDriveWithToken(auth.token, cuadro, `Reel ${r.num || ""} - portada.jpg`.replace("  ", " "));
+      }else{
+        toast("La portada quedó guardada en este dispositivo: para mandarla a Instagram tiene que estar en Google Drive.", "alert", true);
+        url = await compress(cuadro);
+      }
+      applyUploadedImage("reels", id, "cover", url);
+      r.coverMs = Math.round(v.currentTime * 1000);
+      host.innerHTML = "";
+      touch(); persist(true); render();
+      toast("Portada elegida del video", "img");
+    }catch(e){
+      console.warn("No se pudo guardar la portada", e);
+      toast("No se pudo guardar la portada. Vuelve a intentarlo.", "alert", true);
+      usar.disabled = barra.disabled = false;
+      usar.textContent = "Usar este cuadro";
+    }
+  };
+}
 function driveVideoThumb(fileId){
   return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w1000`;
 }
@@ -8277,6 +8418,7 @@ function reelDetailHTML(r){
             <div class="media-slot">
               <span class="cap">Portada</span>
               ${mediaBox({coll:"reels", id:r.id, field:"cover", src:r.cover, ratio:"ratio-916", title:"Subir portada", hint:"9:16"})}
+              ${r.video ? `<button type="button" class="btn btn-ghost btn-sm lock-viewer" data-portada-video="${r.id}" title="Elegir la portada entre los cuadros del video, como en Instagram"><svg><use href="#i-play"/></svg> Elegir del video</button>` : ""}
               ${r.cover ? `<button type="button" class="btn btn-ghost btn-sm lock-viewer" data-clear data-coll="reels" data-id="${r.id}" data-field="cover"><svg><use href="#i-trash"/></svg> Quitar</button>` : ""}
             </div>
             <div class="media-slot">
@@ -8286,7 +8428,8 @@ function reelDetailHTML(r){
             </div>
             <div class="media-pair-info">
               <b>Video, portada y referencia</b>
-              <small>El video es el reel ya editado y la portada es la miniatura con la que se ve en el Feed Preview.
+              <small>El video es el reel ya editado y la portada es la miniatura con la que se ve en el Feed Preview y en el feed de Instagram.
+              Puedes subir una imagen o elegir un cuadro del mismo video con «Elegir del video».
               La referencia es la foto que muestra cómo tiene que verse: locación, encuadre, pose o estilo.
               Arrastra los archivos encima o haz clic para subirlos; cualquiera se amplía y se descarga.</small>
             </div>
@@ -10497,6 +10640,8 @@ document.addEventListener("click", async e => {
   if(t.closest("video.video-player, .drive-frame, .video-uploading")) return;
   const driveLink = t.closest("[data-drive-link]");
   if(driveLink){ pedirLinkDrive(driveLink.dataset); return; }
+  const portadaVideo = t.closest("[data-portada-video]");
+  if(portadaVideo){ elegirPortadaDelVideo(portadaVideo.dataset.portadaVideo); return; }
 
   const up = t.closest("[data-upload]");
   if(up){
