@@ -597,6 +597,12 @@ button.mover-op:hover{border-color:var(--gold);background:var(--gold-pale)}
 
 /* Reels y posts en tarjetas: clic → ficha completa */
 .tile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:18px}
+.tile-nueva{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:300px;
+  border:1.5px dashed var(--gold-soft);border-radius:16px;background:rgba(255,255,255,.45);color:var(--gold-deep);
+  font-family:inherit;font-size:14px;cursor:pointer;transition:background .15s,border-color .15s,transform .15s}
+.tile-nueva:hover{background:#fff;border-color:var(--gold-deep);transform:translateY(-2px)}
+.tile-nueva-mas{width:52px;height:52px;border-radius:50%;background:var(--gold-pale);display:grid;place-items:center}
+.tile-nueva-mas svg{width:24px;height:24px}
 .tile-card{cursor:pointer;transition:transform .15s,box-shadow .15s}
 .tile-card:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
 .tile-media{position:relative;border-radius:12px;overflow:hidden;background:var(--cream-2)}
@@ -8066,7 +8072,6 @@ function viewPosts(q=""){
       <p>Planifica y diseña el contenido de tus publicaciones individuales.</p>
     </div>
     <div class="actions">
-      <button class="btn btn-ghost lock-viewer" data-action="new" data-coll="posts"><svg><use href="#i-plus"/></svg> Agregar nuevo post</button>
       <button class="btn btn-gold lock-viewer" data-action="save"><svg><use href="#i-save"/></svg> Guardar Cambios</button>
     </div>
   </div>
@@ -8074,8 +8079,7 @@ function viewPosts(q=""){
   ${postsPlaybookHTML()}
   ${contentMonthsTabsHTML("posts")}
   ${filterBarHTML("posts", all.length, list.length)}
-  ${list.length ? `<div class="tile-grid">${list.map((p, i) => tileCardHTML("posts", p, i)).join("")}</div>`
-                : emptyState("Sin posts para esta tanda", "Ajusta el filtro o crea un nuevo post.", "posts")}`;
+  <div class="tile-grid">${list.map((p, i) => tileCardHTML("posts", p, i)).join("")}${addTileHTML("posts", "Agregar nuevo post")}</div>`;
 }
 
 function postCard(p, i){
@@ -8133,15 +8137,13 @@ function viewReels(q=""){
   <div class="page-head">
     <div><h1>Reels Planner</h1><p>${esc(S.profile.tagline || "Plan. Create. Captivate.")}</p></div>
     <div class="actions">
-      <button class="btn btn-ghost lock-viewer" data-action="new" data-coll="reels"><svg><use href="#i-plus"/></svg> Nuevo Reel</button>
       <button class="btn btn-gold lock-viewer" data-action="save"><svg><use href="#i-save"/></svg> Guardar Cambios</button>
     </div>
   </div>
   <div class="readonly-note"><svg width="16" height="16"><use href="#i-alert"/></svg> Modo <b>Viewer</b>: la edición está bloqueada.</div>
   ${contentMonthsTabsHTML("reels")}
   ${filterBarHTML("reels", all.length, list.length)}
-  ${list.length ? `<div class="tile-grid">${list.map((r, i) => tileCardHTML("reels", r, i)).join("")}</div>`
-                : emptyState("Sin reels para esta tanda", "Ajusta el filtro o planifica un nuevo reel.", "reels")}`;
+  <div class="tile-grid">${list.map((r, i) => tileCardHTML("reels", r, i)).join("")}${addTileHTML("reels", "Agregar nuevo reel")}</div>`;
 }
 
 /* La ficha completa de un reel: se abre en la ventana de detalle al hacer clic en su
@@ -8374,7 +8376,6 @@ function viewStories(q=""){
       <p>Contenido ágil de bajo esfuerzo para sostener presencia diaria entre publicaciones de feed: encuestas, preguntas, reposts, tips y behind the scenes. Cada historia es <b>contenido + una media</b> para cargar.</p>
     </div>
     <div class="actions">
-      <button class="btn btn-ghost lock-viewer" data-action="new" data-coll="stories"><svg><use href="#i-plus"/></svg> Nueva historia</button>
       <button class="btn btn-ghost lock-viewer" data-action="bulk-stories" title="Elige o arrastra muchas fotos a la vez: cada una se convierte en una historia de este mes"><svg><use href="#i-upload"/></svg> Subir varias fotos</button>
       <button class="btn btn-ghost lock-viewer" data-action="drive-stories" title="Conecta las fotos que ya están en la carpeta de Google Drive con las historias de este mes, por su número"><svg><use href="#i-down"/></svg> Traer fotos de Drive</button>
       <button class="btn btn-ghost lock-viewer" data-action="tidy-stories" title="Pone las historias con foto de este mes en orden (Sold-001, Sold-002…) y pasa a otro mes las que no tienen foto"><svg><use href="#i-filter"/></svg> Ordenar fotos</button>
@@ -8385,7 +8386,7 @@ function viewStories(q=""){
   ${contentMonthsTabsHTML("stories")}
   ${filterBarHTML("stories", all.length, list.length)}
   <div class="story-grid">
-    ${list.length ? list.map((s,i) => storyCard(s,i)).join("") : emptyState("Sin historias para esta tanda", "Ajusta el filtro o agrega una nueva historia.", "stories")}
+    ${list.map((s,i) => storyCard(s,i)).join("")}${addTileHTML("stories", "Agregar nueva historia")}
   </div>`;
 }
 
@@ -8432,6 +8433,12 @@ function tileImagen(coll, it){
   if(it.cover) return it.cover;
   const v = extractDriveFileId(it.video || "");
   return v ? driveVideoThumb(v) : (it.referencia || "");
+}
+
+/* La última tarjeta de la grilla: crea una pieza nueva en el mes que se está viendo. */
+function addTileHTML(coll, texto){
+  return `<button type="button" class="tile-nueva lock-viewer" data-action="new" data-coll="${coll}">
+    <span class="tile-nueva-mas"><svg><use href="#i-plus"/></svg></span>${texto}</button>`;
 }
 
 /* i = posición dentro del mes que se está viendo, como en las historias. */
