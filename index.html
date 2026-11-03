@@ -1598,7 +1598,9 @@ const BRANDS = [
             link:"", followers:"0", following:"0",
             tagline:"Descubre. Disfruta. Quédate."}},
   {id:"finanzas", label:"Finanzas con Propósito", name:"FINANZAS CON PROPÓSITO", sub:"Base bíblica",
-   logo:LOGO_FINANZAS, seeded:false, metricoolBlogId:"",   // ← blogId de esta marca en Metricool
+   logo:LOGO_FINANZAS, seeded:false, metricoolBlogId:"6775289",   // ← blogId de esta marca en Metricool
+   // en Metricool esta marca solo tiene Instagram y Facebook conectados
+   metricoolRedes:["instagram","facebook"],
    profile:{brand:"Finanzas con Propósito", role:"Workspace de contenido", handle:"finanzasconproposito",
             displayName:"Finanzas con Propósito", bio:"Base bíblica · Impacto eterno.",
             link:"", followers:"0", following:"0",
@@ -6717,6 +6719,13 @@ const PROG_REDES = [
   {id:"threads",   label:"Threads"},   {id:"pinterest",label:"Pinterest"}
 ];
 const progPuede = coll => !!PROG_MEDIA[coll];
+/* Redes que tiene conectadas la marca activa en Metricool (metricoolRedes). Una marca
+   sin esa lista ofrece todas. Así un reel de una marca sin TikTok no se manda a TikTok,
+   que Metricool rechazaría. */
+const redesDeMarca = lista => {
+  const m = brandById(activeBrandId).metricoolRedes;
+  return m ? lista.filter(r => m.includes(r)) : lista;
+};
 const PROG_FB_TYPE = { posts:"POST", carousels:"POST", urgente:"POST", reels:"REEL", stories:"STORY" };
 
 /* El video de reels y YouTube va como enlace de descarga directa de Drive. Drive no deja
@@ -6784,7 +6793,7 @@ async function enviarAMetricool(coll, id, {fechaSolo, horaSolo, redes, borrador=
     texto: (it.copy || "").trim(),
     media: video ? [] : (PROG_MEDIA[coll](it) || []).filter(Boolean),
     videos: video ? [video] : [],
-    redes,
+    redes: redesDeMarca(redes),
     fecha: `${fechaSolo}T${horaSolo}:00`,
     zona: METRICOOL_TZ,
     borrador,
@@ -6823,8 +6832,9 @@ async function autoProgramar(coll, id, {silencioso=false} = {}){
   if(!hueco) return false;
   progEnCurso.add(id);
   try{
-    await enviarAMetricool(coll, id, {...hueco, redes: cfg.redes, auto: true});
-    if(!silencioso) toast(`Programado solo para el ${hueco.fechaSolo} a las ${hueco.horaSolo} en ${cfg.redes.join(", ")}.`, "check");
+    const redes = redesDeMarca(cfg.redes);
+    await enviarAMetricool(coll, id, {...hueco, redes, auto: true});
+    if(!silencioso) toast(`Programado solo para el ${hueco.fechaSolo} a las ${hueco.horaSolo} en ${redes.join(", ")}.`, "check");
     return true;
   }catch(e){
     console.warn("No se pudo programar solo", e);
@@ -6960,7 +6970,7 @@ function openScheduleModal(coll, id, opts = {}){
   const hueco = !previo.fecha && cfg ? siguienteHueco(coll) : null;
   const fecha0 = opts.fecha || previo.fechaSolo || (hueco && hueco.fechaSolo) || def.fecha;
   const hora0 = opts.hora || previo.horaSolo || (hueco && hueco.horaSolo) || (cfg && cfg.horas[0]) || def.hora;
-  const marcadas = new Set(opts.redes || previo.redes || (cfg && cfg.redes) || ["instagram"]);
+  const marcadas = new Set(redesDeMarca(opts.redes || previo.redes || (cfg && cfg.redes) || ["instagram"]));
   const titulo = previo.fecha ? "Reprogramar publicación" : opts.desdeAprobacion ? "Aprobado: ¿cuándo se publica?" : "Programar publicación";
 
   const host = inline || $("#modalHost");
@@ -6996,7 +7006,7 @@ function openScheduleModal(coll, id, opts = {}){
 
         <div class="prog-redes-label">Dónde se publica</div>
         <div class="prog-redes">
-          ${PROG_REDES.map(r => `<label class="prog-red ${marcadas.has(r.id) ? "on" : ""}">
+          ${PROG_REDES.filter(r => redesDeMarca([r.id]).length).map(r => `<label class="prog-red ${marcadas.has(r.id) ? "on" : ""}">
             <input type="checkbox" value="${r.id}" ${marcadas.has(r.id) ? "checked" : ""}>${esc(r.label)}</label>`).join("")}
         </div>
 
