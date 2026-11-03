@@ -7687,8 +7687,14 @@ async function miniaturasRapidas(blob, n, paso, poner, signal){
       break;
     }
   }
-  const config = { codec: pista.codec, codedWidth: pista.video.width, codedHeight: pista.video.height, description };
-  if(!(await VideoDecoder.isConfigSupported(config)).supported) throw new Error("códec no soportado: " + pista.codec);
+  /* Por software: medido en la Mac de la clienta, el decodificador por hardware entrega
+     a velocidad normal (30 cuadros por segundo) y el de software a más de 300. */
+  let config = { codec: pista.codec, codedWidth: pista.video.width, codedHeight: pista.video.height, description,
+                 hardwareAcceleration: "prefer-software" };
+  if(!(await VideoDecoder.isConfigSupported(config)).supported){
+    config = Object.assign({}, config, { hardwareAcceleration: "no-preference" });
+    if(!(await VideoDecoder.isConfigSupported(config)).supported) throw new Error("códec no soportado: " + pista.codec);
+  }
 
   // giro guardado en el archivo (videos de teléfono grabados en vertical)
   const m = pista.matrix || [];
@@ -7696,18 +7702,6 @@ async function miniaturasRapidas(blob, n, paso, poner, signal){
   const vertical = giro === 90 || giro === 270;
   const anchoReal = vertical ? pista.video.height : pista.video.width;
   const altoReal = vertical ? pista.video.width : pista.video.height;
-  const c = document.createElement("canvas");
-  c.width = 120; c.height = Math.round(120 * altoReal / anchoReal);
-  const g = c.getContext("2d");
-  const dibujar = frame => {
-    g.save();
-    if(giro === 90){ g.translate(c.width, 0); g.rotate(Math.PI / 2); g.drawImage(frame, 0, 0, c.height, c.width); }
-    else if(giro === 270){ g.translate(0, c.height); g.rotate(-Math.PI / 2); g.drawImage(frame, 0, 0, c.height, c.width); }
-    else if(giro === 180){ g.translate(c.width, c.height); g.rotate(Math.PI); g.drawImage(frame, 0, 0, c.width, c.height); }
-    else g.drawImage(frame, 0, 0, c.width, c.height);
-    g.restore();
-  };
-
   const seg = x => x.cts / x.timescale;
   const claves = muestras.map((x, i) => x.is_sync ? i : -1).filter(i => i >= 0);
   if(!claves.length) throw new Error("sin cuadros clave");
@@ -7721,44 +7715,62 @@ async function miniaturasRapidas(blob, n, paso, poner, signal){
     grupos.get(k).push(i);
   }
 
-  let pendientes = [], errorDec = null;
-  const dec = new VideoDecoder({
-    output: frame => {
-      const t = frame.timestamp / 1e6;
-      if(pendientes.length){
-        dibujar(frame);
-        let url = null;
-        while(pendientes.length && pendientes[0] * paso <= t + .02){
-          poner(pendientes.shift(), t, url ||= c.toDataURL("image/jpeg", .7));
+  /* Los tramos que empiezan en cuadros clave distintos son independientes: se reparten
+     entre varios decodificadores que trabajan a la vez. */
+  const procesar = async lista => {
+    const c = document.createElement("canvas");
+    c.width = 120; c.height = Math.round(120 * altoReal / anchoReal);
+    const g = c.getContext("2d");
+    const dibujar = frame => {
+      g.save();
+      if(giro === 90){ g.translate(c.width, 0); g.rotate(Math.PI / 2); g.drawImage(frame, 0, 0, c.height, c.width); }
+      else if(giro === 270){ g.translate(0, c.height); g.rotate(-Math.PI / 2); g.drawImage(frame, 0, 0, c.height, c.width); }
+      else if(giro === 180){ g.translate(c.width, c.height); g.rotate(Math.PI); g.drawImage(frame, 0, 0, c.width, c.height); }
+      else g.drawImage(frame, 0, 0, c.width, c.height);
+      g.restore();
+    };
+    let pendientes = [], errorDec = null;
+    const dec = new VideoDecoder({
+      output: frame => {
+        const t = frame.timestamp / 1e6;
+        if(pendientes.length){
+          dibujar(frame);
+          let url = null;
+          while(pendientes.length && pendientes[0] * paso <= t + .02){
+            poner(pendientes.shift(), t, url ||= c.toDataURL("image/jpeg", .7));
+          }
         }
+        frame.close();
+      },
+      error: e => { errorDec = e; }
+    });
+    dec.configure(config);
+    try{
+      for(const [k, casillas] of lista){
+        if(signal.aborted || errorDec) break;
+        pendientes = casillas.slice();
+        const hastaT = casillas[casillas.length - 1] * paso + .5;
+        for(let j = k; j < muestras.length; j++){
+          const x = muestras[j];
+          if(j > k && x.is_sync) break;
+          dec.decode(new EncodedVideoChunk({
+            type: x.is_sync ? "key" : "delta", timestamp: Math.round(x.cts * 1e6 / x.timescale),
+            duration: Math.round(x.duration * 1e6 / x.timescale), data: x.data
+          }));
+          if(seg(x) > hastaT) break;
+        }
+        await dec.flush();
+        // lo que quedó sin cuadro (final del tramo) se queda con el último dibujado
+        if(pendientes.length){ const url = c.toDataURL("image/jpeg", .7); pendientes.forEach(i => poner(i, i * paso, url)); }
       }
-      frame.close();
-    },
-    error: e => { errorDec = e; }
-  });
-  dec.configure(config);
-  try{
-    for(const [k, casillas] of grupos){
-      if(signal.aborted || errorDec) break;
-      pendientes = casillas.slice();
-      const hastaT = casillas[casillas.length - 1] * paso + .5;
-      for(let j = k; j < muestras.length; j++){
-        const x = muestras[j];
-        if(j > k && x.is_sync) break;
-        dec.decode(new EncodedVideoChunk({
-          type: x.is_sync ? "key" : "delta", timestamp: Math.round(x.cts * 1e6 / x.timescale),
-          duration: Math.round(x.duration * 1e6 / x.timescale), data: x.data
-        }));
-        if(seg(x) > hastaT) break;
-      }
-      await dec.flush();
-      // lo que quedó sin cuadro (final del tramo) se queda con el último dibujado
-      if(pendientes.length){ const url = c.toDataURL("image/jpeg", .7); pendientes.forEach(i => poner(i, i * paso, url)); }
+    }finally{
+      try{ dec.close(); }catch(e){}
     }
-  }finally{
-    try{ dec.close(); }catch(e){}
-  }
-  if(errorDec) throw errorDec;
+    if(errorDec) throw errorDec;
+  };
+  const todos = [...grupos];
+  const HILOS = Math.min(4, todos.length);
+  await Promise.all(Array.from({length:HILOS}, (_, h) => procesar(todos.filter((__, i) => i % HILOS === h))));
 }
 async function elegirPortadaDelVideo(id){
   if(!guard()) return;
