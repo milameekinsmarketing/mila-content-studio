@@ -589,14 +589,25 @@ button.mover-op:hover{border-color:var(--gold);background:var(--gold-pale)}
 @media (hover:none){.media-zoom,.media-dl{opacity:1}}
 
 /* Portada elegida de un cuadro del mismo video */
-.modal.modal-fotograma{max-width:420px}
-.fotograma-vista{position:relative;height:min(58vh,540px);aspect-ratio:9/16;margin:0 auto 14px;border-radius:14px;overflow:hidden;background:#000}
+.modal.modal-fotograma{max-width:520px;max-height:calc(100vh - 40px);overflow:auto}
+.fotograma-vista{position:relative;height:min(48vh,480px);aspect-ratio:9/16;margin:0 auto 14px;border-radius:14px;overflow:hidden;background:#000}
 .fotograma-vista video{width:100%;height:100%;object-fit:contain;display:block}
 .fotograma-carga{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
   padding:22px;background:rgba(26,30,57,.86);color:#fff;font-size:12.5px;line-height:1.5;text-align:center}
 .fotograma-carga b{font-size:22px}
 #fgBarra{width:100%;accent-color:var(--gold-deep)}
-.fotograma-tiempo{font-size:12px;color:var(--muted);text-align:center;margin:2px 0 16px}
+.fotograma-tiempo{display:flex;align-items:center;justify-content:center;gap:10px;font-size:12px;color:var(--muted);margin:2px 0 12px}
+.fotograma-tiempo .icon-btn{width:28px;height:28px}
+.fotograma-tiempo .icon-btn svg{width:14px;height:14px}
+.fotograma-tiempo .atras svg{transform:rotate(180deg)}
+/* Tira con una miniatura por segundo: se ve cada cuadro con calma y se elige con un clic */
+.fotograma-tira{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 10px;margin:0 0 14px;scroll-snap-type:x proximity}
+.fotograma-tira button{flex:0 0 58px;padding:0;border:2px solid transparent;border-radius:8px;overflow:hidden;background:#000;cursor:pointer;
+  scroll-snap-align:center;position:relative}
+.fotograma-tira button img{display:block;width:100%;aspect-ratio:9/16;object-fit:cover}
+.fotograma-tira button span{position:absolute;left:0;right:0;bottom:0;font-size:9.5px;color:#fff;background:rgba(14,42,74,.6);text-align:center;padding:1px 0}
+.fotograma-tira button.on{border-color:var(--gold-deep)}
+.fotograma-tira-aviso{font-size:11.5px;color:var(--muted);text-align:center;margin:0 0 10px}
 
 /* Lightbox en modo video */
 .lightbox.is-video{width:min(1100px,92vw)}
@@ -977,6 +988,13 @@ html.detalle-abierto{overflow:hidden}
 .slide-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
 .slide-head b{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--navy)}
 .slide-head .tools{margin-left:auto;display:flex;gap:4px}
+/* Corrección por lámina: qué hay que cambiarle a esa lámina en concreto */
+.slide.tiene-corr{border-color:#E7B7AF;box-shadow:0 0 0 1px #F3D6D0}
+.slide-corr-btn.on{color:var(--danger);background:#FBEBE9}
+.slide-corr{margin-top:10px;padding:10px;border-radius:12px;background:#FBEBE9;border:1px solid #F0CFC8}
+.slide-corr label{display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--danger);margin-bottom:6px}
+.slide-corr label svg{width:13px;height:13px}
+.slide-corr .textarea{font-size:13px;min-height:0;background:#fff}
 .grip{cursor:grab;color:#C3B79F;display:grid;place-items:center;padding:6px 0 0}
 .grip svg{width:16px;height:16px}
 
@@ -7560,13 +7578,18 @@ async function elegirPortadaDelVideo(id){
     <div class="modal-bg" data-close>
       <div class="modal modal-fotograma" role="dialog" aria-modal="true">
         <h3>Portada del video</h3>
-        <p>Mueve la barra hasta el cuadro que quieres de portada. Es la imagen que se verá en el feed de Instagram.</p>
+        <p>Elige una miniatura de la tira y afina con la barra o con las flechas, cuadro por cuadro. Es la imagen que se verá en el feed de Instagram.</p>
         <div class="fotograma-vista">
           <video id="fgVideo" muted playsinline preload="auto"></video>
           <div class="fotograma-carga" id="fgCarga"><span>Cargando el video…</span><b>0%</b></div>
         </div>
         <input type="range" id="fgBarra" min="0" max="1" step="0.01" value="0" disabled aria-label="Cuadro del video">
-        <div class="fotograma-tiempo" id="fgTiempo">0:00.0</div>
+        <div class="fotograma-tiempo">
+          <button type="button" class="icon-btn atras" id="fgAtras" title="Cuadro anterior" disabled><svg><use href="#i-right"/></svg></button>
+          <span id="fgTiempo">0:00.0</span>
+          <button type="button" class="icon-btn" id="fgAdelante" title="Cuadro siguiente" disabled><svg><use href="#i-right"/></svg></button>
+        </div>
+        <div class="fotograma-tira" id="fgTira"></div>
         <div class="row">
           <button class="btn btn-ghost" data-close>Cancelar</button>
           <button class="btn btn-gold" id="fgUsar" disabled>Usar este cuadro</button>
@@ -7575,7 +7598,7 @@ async function elegirPortadaDelVideo(id){
     </div>`;
   const cerrar = () => { ctrl.abort(); host.innerHTML = ""; };
   host.onclick = e => { if(e.target.hasAttribute("data-close")) cerrar(); };
-  const v = $("#fgVideo"), barra = $("#fgBarra"), carga = $("#fgCarga"), usar = $("#fgUsar"), tiempo = $("#fgTiempo");
+  const v = $("#fgVideo"), barra = $("#fgBarra"), carga = $("#fgCarga"), usar = $("#fgUsar"), tiempo = $("#fgTiempo"), tira = $("#fgTira");
   const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}.${Math.floor((t % 1) * 10)}`;
 
   const mostrar = src => {
@@ -7586,8 +7609,11 @@ async function elegirPortadaDelVideo(id){
     };
     v.onseeked = () => {
       carga.style.display = "none";
-      barra.disabled = usar.disabled = false;
+      barra.disabled = usar.disabled = $("#fgAtras").disabled = $("#fgAdelante").disabled = false;
+      barra.value = v.currentTime;
       tiempo.textContent = fmt(v.currentTime);
+      marcarEnTira();
+      if(!tira.dataset.hecha){ tira.dataset.hecha = "1"; armarTira(src); }
     };
     v.onerror = () => {
       carga.innerHTML = `<span>Este navegador no puede abrir el formato de este video para sacar la portada. Sube la portada como imagen.</span>`;
@@ -7595,6 +7621,44 @@ async function elegirPortadaDelVideo(id){
     v.src = src;
   };
   barra.oninput = () => { v.currentTime = Number(barra.value); tiempo.textContent = fmt(v.currentTime); };
+  const CUADRO = 1 / 30;
+  $("#fgAtras").onclick = () => { v.currentTime = Math.max(0, v.currentTime - CUADRO); };
+  $("#fgAdelante").onclick = () => { v.currentTime = Math.min(v.duration, v.currentTime + CUADRO); };
+  const marcarEnTira = () => {
+    let cerca = null, dist = Infinity;
+    tira.querySelectorAll("button").forEach(b => {
+      const d = Math.abs(Number(b.dataset.t) - v.currentTime);
+      b.classList.remove("on");
+      if(d < dist){ dist = d; cerca = b; }
+    });
+    if(cerca){ cerca.classList.add("on"); }
+  };
+  tira.onclick = e => {
+    const b = e.target.closest("button[data-t]");
+    if(b){ v.currentTime = Number(b.dataset.t); b.scrollIntoView({block:"nearest", inline:"center", behavior:"smooth"}); }
+  };
+  /* Una miniatura por segundo (hasta 120; en videos más largos se espacian), sacadas con
+     un segundo reproductor oculto para no mover el que se está mirando. */
+  const armarTira = async src => {
+    const aux = document.createElement("video");
+    aux.muted = true; aux.playsInline = true; aux.preload = "auto"; aux.src = src;
+    await new Promise((ok, mal) => { aux.onloadedmetadata = ok; aux.onerror = mal; }).catch(() => null);
+    const dur = aux.duration;
+    if(!dur || !isFinite(dur)) return;
+    const paso = Math.max(1, dur / 120);
+    const c = document.createElement("canvas");
+    c.width = 120; c.height = Math.round(120 * (aux.videoHeight || 16) / (aux.videoWidth || 9));
+    const g = c.getContext("2d");
+    for(let t = 0; t < dur && !ctrl.signal.aborted; t += paso){
+      await new Promise(ok => { aux.onseeked = ok; aux.currentTime = Math.min(t + .05, dur - .05); });
+      g.drawImage(aux, 0, 0, c.width, c.height);
+      tira.insertAdjacentHTML("beforeend",
+        `<button type="button" data-t="${aux.currentTime}" title="${fmt(aux.currentTime)}"><img src="${c.toDataURL("image/jpeg", .7)}" alt=""><span>${fmt(aux.currentTime).replace(/\.\d$/, "")}</span></button>`);
+    }
+    aux.removeAttribute("src"); aux.load();
+    marcarEnTira();
+    tira.querySelector(".on")?.scrollIntoView({block:"nearest", inline:"center"});
+  };
 
   // sin el archivo en Drive al alcance, se pide el mismo video desde la computadora
   const pedirArchivo = motivo => {
@@ -8110,12 +8174,16 @@ function dashboardCount(coll, metricKey){
 function observationItems(){
   const label = c => (DASH_COLLS.find(d => d.coll === c) || {}).label || (c === "urgente" ? "Fin de mes" : c);
   const icon  = c => (DASH_COLLS.find(d => d.coll === c) || {}).icon || (c === "urgente" ? "i-cal" : "i-post");
+  // correcciones escritas lámina por lámina en los carruseles
+  const deLaminas = it => (it.slides || [])
+    .map((s, i) => (s.correccion || "").trim() ? `Lámina ${i + 1}: ${s.correccion.trim()}` : "")
+    .filter(Boolean);
   return COLL.flatMap(c => (S[c] || [])
-    .filter(it => (it.designNote || "").trim() || it.designApproved === false)
+    .filter(it => (it.designNote || "").trim() || it.designApproved === false || deLaminas(it).length)
     .map(it => ({
       coll:c, id:it.id, section:label(c), icon:icon(c),
       title: it.title || (it.idea ? it.idea.slice(0,60) : "") || "Sin título",
-      note: (it.designNote || "").trim(),
+      note: [(it.designNote || "").trim(), ...deLaminas(it)].filter(Boolean).join(" · "),
       rejected: it.designApproved === false,
       done: !!it.reviewed
     })));
@@ -8624,16 +8692,22 @@ function viewCarousels(q=""){
         ${noteBandHTML(c.note)}
         <div class="slides" data-slides="${c.id}">
           ${c.slides.map((s, si) => `
-            <div class="slide" draggable="true" data-slide="${s.id}" data-car="${c.id}" data-coll="carousels">
+            <div class="slide ${(s.correccion || "").trim() ? "tiene-corr" : ""}" draggable="true" data-slide="${s.id}" data-car="${c.id}" data-coll="carousels">
               <div class="slide-head">
                 <b>Slide ${si+1}</b>
                 <span class="tools lock-viewer">
+                  <button class="icon-btn slide-corr-btn ${(s.correccion || "").trim() || corrAbiertas.has(s.id) ? "on" : ""}" style="width:28px;height:28px" data-slide-corr-toggle="${s.id}" title="Escribir una corrección para esta lámina">
+                    <svg width="15" height="15"><use href="#i-pen"/></svg></button>
                   <button class="icon-btn" style="width:28px;height:28px;color:var(--danger)" data-del-slide data-coll="carousels" data-car="${c.id}" data-id="${s.id}" title="Eliminar slide">
                     <svg width="15" height="15"><use href="#i-trash"/></svg></button>
                 </span>
               </div>
               ${mediaBox({coll:"carousels", id:c.id+"::"+s.id, field:"slide", src:s.image, ratio:"ratio-45", title:"Upload image", hint:"1080 x 1350px"})}
               <textarea class="textarea" rows="3" style="margin-top:10px;font-size:13px;min-height:0" data-slide-caption data-coll="carousels" data-car="${c.id}" data-id="${s.id}" placeholder="Texto de la slide...">${esc(s.caption)}</textarea>
+              ${(s.correccion || "").trim() || corrAbiertas.has(s.id) ? `<div class="slide-corr">
+                <label><svg><use href="#i-pen"/></svg>Corrección</label>
+                <textarea class="textarea" rows="2" data-slide-corr data-car="${c.id}" data-id="${s.id}" placeholder="¿Qué hay que cambiar en esta lámina? Texto, foto, colores...">${esc(s.correccion || "")}</textarea>
+              </div>` : ""}
               <div class="grip" title="Arrastra para mover la imagen a otra lámina"><svg><use href="#i-grip"/></svg></div>
             </div>`).join("")}
         </div>
@@ -8845,6 +8919,8 @@ const LLEVA_MUSICA = coll => coll === "reels" || coll === "stories";
 /* En la historia la música va plegada en una sola línea para que la tarjeta no crezca.
    Qué historias están abiertas vive aquí, no en S: así sobrevive a cada repintado. */
 const musicaAbierta = new Set();
+/* Láminas de carrusel con la caja de corrección abierta aunque todavía esté vacía. */
+const corrAbiertas = new Set();
 document.addEventListener("toggle", e => {
   const d = e.target;
   if(!(d instanceof HTMLDetailsElement) || !d.dataset.plegable) return;
@@ -10740,6 +10816,17 @@ document.addEventListener("click", async e => {
   if(t.closest("video.video-player, .drive-frame, .video-uploading")) return;
   const driveLink = t.closest("[data-drive-link]");
   if(driveLink){ pedirLinkDrive(driveLink.dataset); return; }
+  const corrBtn = t.closest("[data-slide-corr-toggle]");
+  if(corrBtn){
+    if(!guard()) return;
+    const sid = corrBtn.dataset.slideCorrToggle;
+    const abierta = corrAbiertas.has(sid) || !!document.querySelector(`[data-slide-corr][data-id="${sid}"]`);
+    if(abierta && !document.querySelector(`[data-slide-corr][data-id="${sid}"]`)?.value.trim()) corrAbiertas.delete(sid);
+    else corrAbiertas.add(sid);
+    render();
+    document.querySelector(`[data-slide-corr][data-id="${sid}"]`)?.focus();
+    return;
+  }
   const portadaVideo = t.closest("[data-portada-video]");
   if(portadaVideo){ elegirPortadaDelVideo(portadaVideo.dataset.portadaVideo); return; }
 
@@ -10915,6 +11002,17 @@ document.addEventListener("input", e => {
     const it = find(f.dataset.coll, f.dataset.id);
     if(it){ it[f.dataset.key] = el.value; touch(); }
     if(el.classList.contains("textarea")) autosize(el);
+    return;
+  }
+  const corr = el.closest("[data-slide-corr]");
+  if(corr){
+    const c = find("carousels", corr.dataset.car);
+    const s = c && c.slides.find(x => x.id === corr.dataset.id);
+    if(s){
+      s.correccion = el.value; touch();
+      corr.closest(".slide")?.classList.toggle("tiene-corr", !!el.value.trim());
+    }
+    autosize(el);
     return;
   }
   const cap = el.closest("[data-slide-caption]");
