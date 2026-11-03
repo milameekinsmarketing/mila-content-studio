@@ -6538,7 +6538,13 @@ function subscribeRealtime(){
       // hay ediciones locales sin guardar: no se pisan; el próximo guardado las combina
       if(dirty || cloudSaveInFlight) return;
       cloudBase = structuredClone(incoming.data); cloudStamp = incoming.updated_at;
+      // la vista, los filtros y el mes que se miran son de esta pestaña: no se copian
+      // de la que guardó
+      const ui = S.ui;
       S = unpackWorkspace(incoming.data);
+      S.ui = ui;
+      if(S.ui.contentMonth >= (S.contentMonths || []).length) S.ui.contentMonth = 0;
+      if(S.ui.feedMonth >= (S.feedMonths || []).length) S.ui.feedMonth = 0;
       historyReset();
       localStorage.setItem(KEY, JSON.stringify(packWorkspace()));
       render();
