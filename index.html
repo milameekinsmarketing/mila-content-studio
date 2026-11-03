@@ -133,6 +133,15 @@ body::before{
 .prog-borrador{display:flex;align-items:center;gap:8px;font-size:12px;color:#43566C;margin-top:16px;cursor:pointer}
 .prog-borrador input{accent-color:var(--gold-deep)}
 .prog-modal .row{margin-top:20px}
+/* Programar dentro del Feed Preview: botón bajo cada publicación y formulario a lo ancho */
+.slot-wrap{display:flex;flex-direction:column;gap:6px;min-width:0}
+.cell-prog{display:flex;justify-content:center}
+.cell-prog .prog-chip{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;padding:4px 10px}
+.cell-prog.abierto .prog-chip{border-color:var(--gold);background:var(--gold-pale);color:var(--navy)}
+.feed-prog{grid-column:1/-1}
+.feed-prog .prog-inline{max-width:none;width:100%;border:1px solid var(--gold-soft);box-shadow:0 10px 30px rgba(14,42,74,.10);
+  border-radius:16px;padding:20px 22px;margin:4px 0 10px}
+.feed-prog .prog-inline h3{font-size:20px}
 .prog-campo select{font-family:inherit;font-size:13.5px;color:var(--navy);background:var(--cream);
   border:1px solid var(--line);border-radius:12px;padding:10px 12px;height:44px}
 .prog-quitar{color:var(--danger)}
@@ -6898,18 +6907,23 @@ function proponerProgramacion(coll, id){
   openScheduleModal(coll, id, {desdeAprobacion: true});
 }
 
+/* opts.host: un elemento de la página donde pintar el formulario en vez de la ventana
+   flotante (así se usa en el Feed Preview, debajo de cada publicación). opts.fecha,
+   hora, redes y borrador traen lo que ya se había elegido, para no perderlo cuando la
+   página se vuelve a pintar. Devuelve false si no se pudo abrir. */
 function openScheduleModal(coll, id, opts = {}){
-  if(!guard()) return;
-  const it = find(coll, id); if(!it) return;
+  const inline = opts.host || null;
+  if(!inline && !guard()) return false;
+  const it = find(coll, id); if(!it) return false;
 
   if(!metricoolEnabled()){
     toast("Metricool todavía no está conectado. Falta pegar la URL de la Edge Function en METRICOOL_FN_URL.", "alert", true);
-    return;
+    return false;
   }
   const marca = brandById(activeBrandId);
   if(!marca.metricoolBlogId){
     toast(`Falta el blogId de Metricool para ${marca.label}. Se configura en BRANDS.`, "alert", true);
-    return;
+    return false;
   }
 
   const cfg = PROG_AUTO[coll];
@@ -6920,14 +6934,18 @@ function openScheduleModal(coll, id, opts = {}){
   const def = progFechaPorDefecto();
   const hueco = !previo.fecha && cfg ? siguienteHueco(coll) : null;
   const fecha0 = opts.fecha || previo.fechaSolo || (hueco && hueco.fechaSolo) || def.fecha;
-  const hora0 = previo.horaSolo || (hueco && hueco.horaSolo) || (cfg && cfg.horas[0]) || def.hora;
-  const marcadas = new Set(previo.redes || (cfg && cfg.redes) || ["instagram"]);
+  const hora0 = opts.hora || previo.horaSolo || (hueco && hueco.horaSolo) || (cfg && cfg.horas[0]) || def.hora;
+  const marcadas = new Set(opts.redes || previo.redes || (cfg && cfg.redes) || ["instagram"]);
   const titulo = previo.fecha ? "Reprogramar publicación" : opts.desdeAprobacion ? "Aprobado: ¿cuándo se publica?" : "Programar publicación";
 
-  const host = $("#modalHost");
-  host.innerHTML = `
-    <div class="modal-bg" data-close>
-      <div class="modal prog-modal" role="dialog" aria-modal="true">
+  const host = inline || $("#modalHost");
+  const q = sel => host.querySelector(sel);
+  const cerrar = () => {
+    host.innerHTML = "";
+    if(inline){ feedProg = null; render(); }
+  };
+  const caja = `
+      <div class="modal prog-modal ${inline ? "prog-inline" : ""}" ${inline ? "" : `role="dialog" aria-modal="true"`}>
         <h3>${titulo}</h3>
         <p class="prog-titulo">${esc(it.title || it.idea || "Sin título")}</p>
 
@@ -6957,7 +6975,7 @@ function openScheduleModal(coll, id, opts = {}){
             <input type="checkbox" value="${r.id}" ${marcadas.has(r.id) ? "checked" : ""}>${esc(r.label)}</label>`).join("")}
         </div>
 
-        <label class="prog-borrador"><input type="checkbox" id="progBorrador" ${previo.borrador ? "checked" : ""}>
+        <label class="prog-borrador"><input type="checkbox" id="progBorrador" ${(opts.borrador ?? previo.borrador) ? "checked" : ""}>
           Dejarla como borrador en Metricool (no se publica sola)</label>
 
         <div class="row">
@@ -6965,31 +6983,32 @@ function openScheduleModal(coll, id, opts = {}){
           <button class="btn btn-ghost" data-close>${opts.desdeAprobacion ? "Ahora no" : "Cancelar"}</button>
           <button class="btn btn-gold" id="progEnviar"><svg><use href="#i-cal"/></svg> ${previo.fecha ? "Reprogramar" : "Programar"}</button>
         </div>
-      </div>
-    </div>`;
+      </div>`;
+  host.innerHTML = inline ? caja : `<div class="modal-bg" data-close>${caja}</div>`;
   /* El fondo lleva data-close para poder cerrar al hacer clic fuera. Pero este diálogo
      sí tiene controles dentro (fechas, casillas), y con closest() cualquier clic en
      ellos encontraría el fondo al subir y cerraría el diálogo. Por eso se cierra solo
      con un clic en el fondo mismo o en un botón marcado para cerrar. */
   host.onclick = e => {
-    if(e.target.hasAttribute("data-close") || e.target.closest("button[data-close]")) host.innerHTML = "";
+    if((!inline && e.target.hasAttribute("data-close")) || e.target.closest("button[data-close]")) cerrar();
   };
-  $$(".prog-red input").forEach(chk => {
+  host.querySelectorAll(".prog-red input").forEach(chk => {
     chk.onchange = () => chk.closest(".prog-red").classList.toggle("on", chk.checked);
   });
   // al cambiar de día se recalcula qué horas están ocupadas ese día
-  $("#progFecha").onchange = () => {
-    $("#progHora").innerHTML = progHorasOptions(coll, $("#progFecha").value, $("#progHora").value, id);
+  q("#progFecha").onchange = () => {
+    q("#progHora").innerHTML = progHorasOptions(coll, q("#progFecha").value, q("#progHora").value, id);
   };
 
-  const quitar = $("#progQuitar");
+  const quitar = q("#progQuitar");
   if(quitar) quitar.onclick = async () => {
     quitar.disabled = true; quitar.textContent = "Quitando…";
     try{
       await llamarMetricool({accion:"borrar", blogId: marca.metricoolBlogId, id: previo.id});
       const ahora = find(coll, id); if(ahora) ahora.programado = null;
       logActivity("cal", `<b>Quitado de Metricool:</b> ${esc(it.title || it.idea || "Pieza")}.`);
-      touch(); render(); host.innerHTML = "";
+      host.innerHTML = ""; if(inline) feedProg = null;
+      touch(); render();
       toast("Se quitó de la programación de Metricool.", "history");
     }catch(e){
       quitar.disabled = false; quitar.innerHTML = `<svg><use href="#i-trash"/></svg> Quitar de Metricool`;
@@ -6997,32 +7016,39 @@ function openScheduleModal(coll, id, opts = {}){
     }
   };
 
-  $("#progEnviar").onclick = async () => {
-    const fechaSolo = $("#progFecha").value, horaSolo = $("#progHora").value;
-    const redes = $$(".prog-red input:checked").map(c => c.value);
+  q("#progEnviar").onclick = async () => {
+    const fechaSolo = q("#progFecha").value, horaSolo = q("#progHora").value;
+    const redes = [...host.querySelectorAll(".prog-red input:checked")].map(c => c.value);
     if(!fechaSolo || !horaSolo){ toast("Falta el día o la hora.", "alert", true); return; }
     if(new Date(`${fechaSolo}T${horaSolo}`) < new Date()){ toast("Ese día y hora ya pasaron.", "alert", true); return; }
     if(!redes.length){ toast("Elige al menos una red.", "alert", true); return; }
     if(previo.fecha && previo.fechaSolo === fechaSolo && previo.horaSolo === horaSolo
-       && (previo.redes || []).join() === redes.join() && !!previo.borrador === $("#progBorrador").checked){
-      host.innerHTML = ""; return;
+       && (previo.redes || []).join() === redes.join() && !!previo.borrador === q("#progBorrador").checked){
+      cerrar(); return;
     }
 
-    const btn = $("#progEnviar");
+    const btn = q("#progEnviar");
     btn.disabled = true; btn.innerHTML = conVideo ? "Programando… (el video tarda un poco)" : "Programando…";
-    const borrador = $("#progBorrador").checked;
+    const borrador = q("#progBorrador").checked;
     // lo aprobado queda ligado a su aprobación: si se retira, se quita de Metricool
     const auto = !!(cfg && aprobadaParaProgramar(coll, it));
+    // el formulario del feed se cierra ya: si enviarAMetricool vuelve a pintar la
+    // página, no debe reabrirlo. Si falla, se deja abierto como estaba.
+    const feedProgAntes = feedProg;
     try{
+      if(inline) feedProg = null;
       await enviarAMetricool(coll, id, {fechaSolo, horaSolo, redes, borrador, auto});
       host.innerHTML = "";
+      if(inline) render();
       toast(borrador ? `Borrador en Metricool para el ${fechaSolo} a las ${horaSolo}` : `Programado para el ${fechaSolo} a las ${horaSolo} ✓`, "check");
     }catch(e){
       console.warn("No se pudo programar", e);
+      if(inline) feedProg = feedProgAntes;
       btn.disabled = false; btn.innerHTML = `<svg><use href="#i-cal"/></svg> ${previo.fecha ? "Reprogramar" : "Programar"}`;
       toast(`No se pudo programar: ${e.message}`, "alert", true);
     }
   };
+  return true;
 }
 
 /* ============================================================
@@ -7826,11 +7852,15 @@ function applyFilter(coll, list){
     // Orden de publicación: el que se publica primero va primero en la lista, en el
     // mismo orden exacto en el que están los espacios en el Feed Preview. Lo que aún
     // no está colocado en el feed queda al final (empatado en Infinity), y entre esos
-    // se desempata por fecha, más recientes primero.
+    // se desempata por fecha, más recientes primero. Las piezas creadas a mano (sin
+    // num, el número del contenido entregado) van detrás de todo, en el orden en que se
+    // crearon: la tarjeta "Agregar nuevo" está al final, y lo nuevo aparece junto a ella.
     if(f.sort === "pub"){
       const ka = pubSortKey(coll, a.id), kb = pubSortKey(coll, b.id);
       if(ka !== kb) return ka - kb;
-      return (b.createdAt||0) - (a.createdAt||0);
+      const na = a.num == null, nb = b.num == null;
+      if(na !== nb) return na ? 1 : -1;
+      return na ? (a.createdAt||0) - (b.createdAt||0) : (b.createdAt||0) - (a.createdAt||0);
     }
     return f.sort === "oldest"
       ? (a.createdAt||0) - (b.createdAt||0)
@@ -8552,7 +8582,7 @@ function viewUrgente(q=""){
               <input class="input slide-title" data-slide-title data-coll="urgente" data-car="${u.id}" data-id="${s.id}" value="${esc(s.title || "")}" placeholder="Título de esta imagen">
               ${mediaBox({coll:"urgente", id:u.id+"::"+s.id, field:"slide", src:s.image, ratio:"ratio-45", title:"Subir imagen", hint:"Arrástrala o haz clic"})}
               <textarea class="textarea" rows="2" style="margin-top:10px;font-size:13px;min-height:0" data-slide-caption data-coll="urgente" data-car="${u.id}" data-id="${s.id}" placeholder="Nota de esta imagen...">${esc(s.caption || "")}</textarea>
-              <div class="grip" title="Arrastra para reordenar"><svg><use href="#i-grip"/></svg></div>
+              <div class="grip" title="Arrastra para mover la imagen a otra lámina"><svg><use href="#i-grip"/></svg></div>
             </div>`).join("")}
         </div>
         ${field("Ciudad","build", input("urgente", u.id, "ciudad", u.ciudad, "¿De qué ciudad es esta publicación?"))}
@@ -8604,7 +8634,7 @@ function viewCarousels(q=""){
               </div>
               ${mediaBox({coll:"carousels", id:c.id+"::"+s.id, field:"slide", src:s.image, ratio:"ratio-45", title:"Upload image", hint:"1080 x 1350px"})}
               <textarea class="textarea" rows="3" style="margin-top:10px;font-size:13px;min-height:0" data-slide-caption data-coll="carousels" data-car="${c.id}" data-id="${s.id}" placeholder="Texto de la slide...">${esc(s.caption)}</textarea>
-              <div class="grip" title="Arrastra para reordenar"><svg><use href="#i-grip"/></svg></div>
+              <div class="grip" title="Arrastra para mover la imagen a otra lámina"><svg><use href="#i-grip"/></svg></div>
             </div>`).join("")}
         </div>
         <div class="grid-2" style="margin-top:18px">
@@ -9043,6 +9073,16 @@ function feedDisplay(coll, it){
   return null;
 }
 
+/* El mes de contenido (pestañas de Reels, Posts, Carruseles) que corresponde a un mes
+   del Feed Preview: el que se llama igual y, si no hay ninguno, el de la misma posición. */
+function feedContentMonth(feedIdx){
+  const fm = S.feedMonths[feedIdx];
+  const cms = S.contentMonths || [];
+  if(!fm) return null;
+  const norm = x => String(x || "").trim().toLowerCase();
+  return cms.find(m => norm(m.label) === norm(fm.label)) || cms[feedIdx] || null;
+}
+
 /* Piezas realmente colocadas, en el orden de los espacios. */
 function feedItems(){
   return ensureFeedSlots()
@@ -9059,6 +9099,8 @@ function feedSlotIndexOf(coll, id){
 function assignFeedSlot(index, coll, id){
   const slots = ensureFeedSlots();
   if(index < 0 || index >= slots.length) return;
+  // en el feed de Instagram solo van posts, reels y carruseles: nunca YouTube
+  if(!FEED_FORMATS.some(f => f.coll === coll)) return;
   // una misma pieza no puede ocupar dos espacios, ni en este mes ni en otro
   S.feedMonths.forEach(m => m.slots.forEach((sl, i) => {
     if(sl && sl.coll === coll && sl.id === id) m.slots[i] = null;
@@ -9283,7 +9325,7 @@ function viewFeed(){
       // El número que se muestra es la posición real de este espacio (orden de
       // publicación), no el número original del Banco de Ideas.
       const numLabel = ` #${feedPubOrder(i, cells)}`;
-      html += `<div class="cell ${it.published ? "is-published" : ""}" style="animation-delay:${delay}" draggable="true"
+      html += `<div class="slot-wrap"><div class="cell ${it.published ? "is-published" : ""}" style="animation-delay:${delay}" draggable="true"
         data-slot="${i}" data-cell="${it.id}" data-coll="${it.coll}"
         title="${esc(kindLabel)}${numLabel} — ${esc(it.title)} · clic para editar">
         ${it.image ? `<img src="${it.image}" alt="${esc(it.title)}">`
@@ -9302,10 +9344,10 @@ function viewFeed(){
         <span class="badge"><svg><use href="#i-${it.kind==="reel"?"play":it.kind==="carousel"?"copy":"img"}"/></svg>${kindLabel}${numLabel}</span>
         <span class="rt"><svg><use href="#i-star"/></svg>${Number(it.rating)||0}/10</span>
         <span class="meta">${esc(it.title)} · ${STATUS[it.status]||""}</span>
-      </div>`;
+      </div>${feedProgBtnHTML(i, it.coll, it.id)}</div>`;
     }else{
       const n = String(feedPubOrder(i, cells)).padStart(2,"0");
-      html += `<div class="cell empty" style="animation-delay:${delay}" data-slot="${i}" data-pick-slot="${i}"
+      html += `<div class="slot-wrap"><div class="cell empty" style="animation-delay:${delay}" data-slot="${i}" data-pick-slot="${i}"
         title="Elegir qué publicación va en este espacio">
         <div class="ph">
           <svg><use href="#i-img-plus"/></svg>
@@ -9313,7 +9355,13 @@ function viewFeed(){
           <span class="pick-hint">Formato → título</span>
         </div>
         <span class="sched"><span>Espacio</span><span>#${n}</span></span>
-      </div>`;
+      </div></div>`;
+    }
+    // el formulario de programar se abre a lo ancho, justo debajo de la fila de la
+    // publicación elegida (lo rellena fillFeedProg después de pintar)
+    if(feedProg && Math.floor(feedProg.slot / FEED_COLS) === Math.floor(i / FEED_COLS)
+       && (i % FEED_COLS === FEED_COLS - 1 || i === cells - 1)){
+      html += `<div class="feed-prog" id="feedProgHost"></div>`;
     }
   }
 
@@ -9362,6 +9410,41 @@ function viewFeed(){
   </div>`;
 }
 
+/* ---------- Programar en Metricool desde el Feed Preview ----------
+   Debajo de cada publicación colocada va su botón de programar. Al pulsarlo, el mismo
+   formulario de la ventana de programar se abre dentro de la página, a lo ancho de la
+   grilla y bajo la fila de esa publicación. Vive en esta pestaña, no se guarda. */
+let feedProg = null;   // {slot, coll, id}
+
+function feedProgBtnHTML(slot, coll, id){
+  const btn = scheduleBtnHTML(coll, id);
+  if(!btn) return "";
+  const abierto = feedProg && feedProg.slot === slot;
+  return `<div class="cell-prog ${abierto ? "abierto" : ""}">${btn
+    .replace("data-schedule", `data-feed-prog="${slot}"`)}</div>`;
+}
+
+/* Lo que ya se eligió en el formulario abierto, para no perderlo al volver a pintar. */
+function feedProgDraft(){
+  const host = $("#feedProgHost");
+  if(!host || !host.querySelector("#progFecha")) return {};
+  return {
+    fecha: host.querySelector("#progFecha").value,
+    hora: host.querySelector("#progHora").value,
+    redes: [...host.querySelectorAll(".prog-red input:checked")].map(c => c.value),
+    borrador: host.querySelector("#progBorrador").checked
+  };
+}
+
+function fillFeedProg(draft){
+  const host = $("#feedProgHost");
+  if(!feedProg || !host) return;
+  const sl = ensureFeedSlots()[feedProg.slot];
+  // si la publicación cambió de espacio o se quitó, el formulario se cierra
+  if(!sl || sl.coll !== feedProg.coll || sl.id !== feedProg.id || !canEdit()){ feedProg = null; host.remove(); return; }
+  if(!openScheduleModal(feedProg.coll, feedProg.id, Object.assign({host}, draft))){ feedProg = null; host.remove(); }
+}
+
 /* ---------- Selector de publicación para un espacio del feed ----------
    Lista plegable: primero el formato, y al abrirlo, sus títulos. */
 let pickerSlot = -1;
@@ -9378,9 +9461,13 @@ function renderFeedPicker(){
   const slots = ensureFeedSlots();
   const current = slots[pickerSlot] || null;
 
+  const mesContenido = feedContentMonth(S.ui.feedMonth);
   const groups = FEED_FORMATS.map(f => {
     const open = pickerGroup === f.coll;
-    const list = sorted(f.coll);
+    // solo las piezas del mes de contenido que corresponde a este mes del feed (y la
+    // que ya ocupa el espacio, aunque sea de otro mes, para poder verla y cambiarla)
+    const list = sorted(f.coll).filter(it => !mesContenido || !usaMeses(f.coll) || it.monthId === mesContenido.id
+      || (current && current.coll === f.coll && current.id === it.id));
     let inner = "";
     if(open){
       inner = list.length ? `<div class="pick-list">${list.map(it => {
@@ -9397,7 +9484,7 @@ function renderFeedPicker(){
             : loc ? `<span class="tag-used">Ya en ${esc(S.feedMonths[loc.month]?.label || `Mes ${loc.month+1}`)} · #${feedPubOrder(loc.slot, monthSlotCount(loc.month))}</span>` : ""}
           ${!d.image ? `<span class="no-media">Sin media</span>` : ""}
         </button>`;
-      }).join("")}</div>` : `<div class="picker-empty">Todavía no hay piezas en este formato.</div>`;
+      }).join("")}</div>` : `<div class="picker-empty">No hay piezas de este formato en ${esc(mesContenido ? mesContenido.label : "este mes")}.</div>`;
     }
     return `<button type="button" class="pick-group ${open ? "open" : ""}" data-pick-group="${f.coll}">
         <svg class="ico"><use href="#${f.icon}"/></svg>
@@ -9412,7 +9499,7 @@ function renderFeedPicker(){
       <div class="picker" role="dialog" aria-modal="true">
         <div class="picker-head">
           <h3>${esc(activeMonth().label)} · Espacio #${String(feedSlotCount() - pickerSlot).padStart(2,"0")}</h3>
-          <p>Elige el formato y luego el título. La media de esa pieza se coloca automáticamente.</p>
+          <p>Elige el formato y luego el título. Solo aparecen las piezas de ${esc(mesContenido ? mesContenido.label : "este mes")} en Reels, Posts y Carruseles; la media se coloca automáticamente.</p>
         </div>
         <div class="picker-body">${groups}</div>
         <div class="picker-foot">
@@ -9928,7 +10015,10 @@ function render(){
     v === "feed"      ? viewFeed() :
     v === "calendario"? viewCalendario() :
     v === "settings"  ? viewSettings() : viewDashboard();
+  if(v !== "feed") feedProg = null;
+  const progDraft = feedProgDraft();
   $("#view").innerHTML = html;
+  if(v === "feed") fillFeedProg(progDraft);
   renderDetalle();
   $$(".textarea").forEach(autosize);
   updateSaveState();
@@ -9994,7 +10084,7 @@ function switchBrand(id){
 function createItem(coll){
   if(!guard()) return;
   const t = now();
-  const base = {id:uid(coll), createdAt:t, order:-1, rating:0, status:"draft", reviewed:false, published:false, collapsed:false, designApproved:null, designNote:""};
+  const base = {id:uid(coll), createdAt:t, order:(S[coll] || []).length, rating:0, status:"draft", reviewed:false, published:false, collapsed:false, designApproved:null, designNote:""};
   // Posts/Reels/Carruseles/Historias: la pieza nueva se crea en el mes de contenido
   // que se esté viendo, para que aparezca directo en esa pestaña.
   if(usaMeses(coll)) base.monthId = activeContentMonth().id;
@@ -10024,7 +10114,7 @@ function createItem(coll){
   }else{
     return;
   }
-  S[coll].unshift(item);
+  S[coll].push(item);
   reindex(coll);
   logActivity("ok", `<b>${label} creado:</b> ${esc(item.title || item.name || "Nueva historia")} está listo para editarse.`);
   touch();
@@ -10368,12 +10458,12 @@ function duplicateItem(coll, id){
   if(!guard()) return;
   const it = find(coll, id); if(!it) return;
   const copy = JSON.parse(JSON.stringify(it));
-  copy.id = uid(coll); copy.createdAt = now(); copy.order = -1;
+  copy.id = uid(coll); copy.createdAt = now(); copy.order = (S[coll] || []).length;
   copy.reviewed = false; copy.published = false; copy.num = undefined; copy.status = "draft";
   copy.designApproved = null; copy.designNote = "";
   copy.title = (it.title || it.name || "") + " (copia)";
   if(copy.slides) copy.slides.forEach(s => s.id = uid("sl"));
-  S[coll].unshift(copy); reindex(coll); touch(); render(); toast("Duplicado", "copy");
+  S[coll].push(copy); reindex(coll); touch(); render(); toast("Duplicado", "copy");
 }
 
 function exportJSON(){
@@ -10616,6 +10706,16 @@ document.addEventListener("click", async e => {
     return;
   }
 
+  const feedProgBtn = t.closest("[data-feed-prog]");
+  if(feedProgBtn){
+    const slot = Number(feedProgBtn.dataset.feedProg);
+    if(feedProg && feedProg.slot === slot){ feedProg = null; render(); return; }
+    if(!guard()) return;
+    feedProg = {slot, coll: feedProgBtn.dataset.coll, id: feedProgBtn.dataset.id};
+    render();
+    $("#feedProgHost")?.scrollIntoView({behavior:"smooth", block:"nearest"});
+    return;
+  }
   const prog = t.closest("[data-schedule]");
   if(prog){ openScheduleModal(prog.dataset.coll, prog.dataset.id); return; }
   const calChip = t.closest("[data-prog-chip]");
@@ -11004,14 +11104,15 @@ document.addEventListener("drop", e => {
     [slots[from], slots[to]] = [slots[to] || null, slots[from] || null];
     touch(); render(); toast("Feed reordenado", "grid");
   }else if(target.dataset.slide && dragSrc.dataset.slide && target.dataset.car === dragSrc.dataset.car){
+    // se mueve solo la imagen: el texto de cada lámina se queda donde está. Si la lámina
+    // de destino ya tenía imagen, las dos se intercambian.
     const c = find(target.dataset.coll || "carousels", target.dataset.car);
     if(!c) return;
-    const from = c.slides.findIndex(s => s.id === dragSrc.dataset.slide);
-    const to   = c.slides.findIndex(s => s.id === target.dataset.slide);
-    if(from < 0 || to < 0) return;
-    const [m] = c.slides.splice(from, 1);
-    c.slides.splice(to, 0, m);
-    touch(); render();
+    const a = c.slides.find(s => s.id === dragSrc.dataset.slide);
+    const b = c.slides.find(s => s.id === target.dataset.slide);
+    if(!a || !b || !a.image) return;
+    [a.image, b.image] = [b.image || "", a.image];
+    touch(); render(); toast(b.image && a.image ? "Imágenes intercambiadas" : "Imagen movida", "img");
   }
 });
 
