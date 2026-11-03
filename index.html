@@ -7729,17 +7729,20 @@ async function miniaturasRapidas(blob, n, paso, poner, signal){
       else g.drawImage(frame, 0, 0, c.width, c.height);
       g.restore();
     };
-    let pendientes = [], errorDec = null;
+    // solo se dibujan los cuadros que se usan: dibujar cada cuadro de 1080x1920 es lo
+    // que más cuesta. Del resto se guarda el último (clonar no copia la imagen) por si
+    // el tramo termina antes del segundo pedido.
+    let pendientes = [], errorDec = null, ultimo = null;
     const dec = new VideoDecoder({
       output: frame => {
         const t = frame.timestamp / 1e6;
-        if(pendientes.length){
+        if(pendientes.length && pendientes[0] * paso <= t + .02){
           dibujar(frame);
-          let url = null;
-          while(pendientes.length && pendientes[0] * paso <= t + .02){
-            poner(pendientes.shift(), t, url ||= c.toDataURL("image/jpeg", .7));
-          }
+          const url = c.toDataURL("image/jpeg", .7);
+          while(pendientes.length && pendientes[0] * paso <= t + .02) poner(pendientes.shift(), t, url);
         }
+        if(ultimo) ultimo.close();
+        ultimo = pendientes.length ? frame.clone() : null;
         frame.close();
       },
       error: e => { errorDec = e; }
@@ -7760,10 +7763,16 @@ async function miniaturasRapidas(blob, n, paso, poner, signal){
           if(seg(x) > hastaT) break;
         }
         await dec.flush();
-        // lo que quedó sin cuadro (final del tramo) se queda con el último dibujado
-        if(pendientes.length){ const url = c.toDataURL("image/jpeg", .7); pendientes.forEach(i => poner(i, i * paso, url)); }
+        // lo que quedó sin cuadro (final del tramo) se queda con el último decodificado
+        if(pendientes.length && ultimo){
+          dibujar(ultimo);
+          const url = c.toDataURL("image/jpeg", .7);
+          pendientes.forEach(i => poner(i, i * paso, url));
+        }
+        if(ultimo){ ultimo.close(); ultimo = null; }
       }
     }finally{
+      if(ultimo) ultimo.close();
       try{ dec.close(); }catch(e){}
     }
     if(errorDec) throw errorDec;
