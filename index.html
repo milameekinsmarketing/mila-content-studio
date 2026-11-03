@@ -7644,7 +7644,10 @@ async function elegirPortadaDelVideo(id){
     if(b){ v.currentTime = Number(b.dataset.t); b.scrollIntoView({block:"nearest", inline:"center", behavior:"smooth"}); }
   };
   /* Una miniatura por segundo (hasta 120; en videos más largos se espacian), sacadas con
-     un segundo reproductor oculto para no mover el que se está mirando. */
+     un segundo reproductor oculto para no mover el que se está mirando. El video se
+     recorre de corrido a 16x y se toma un cuadro cada vez que pasa el segundo siguiente:
+     saltar segundo por segundo obliga a decodificar desde el cuadro clave en cada salto
+     y tarda varios segundos por miniatura. */
   const armarTira = async src => {
     const aux = document.createElement("video");
     aux.muted = true; aux.playsInline = true; aux.preload = "auto"; aux.src = src;
@@ -7655,12 +7658,32 @@ async function elegirPortadaDelVideo(id){
     const c = document.createElement("canvas");
     c.width = 120; c.height = Math.round(120 * (aux.videoHeight || 16) / (aux.videoWidth || 9));
     const g = c.getContext("2d");
-    for(let t = 0; t < dur && !ctrl.signal.aborted; t += paso){
-      await new Promise(ok => { aux.onseeked = ok; aux.currentTime = Math.min(t + .05, dur - .05); });
+    const agregar = t => {
       g.drawImage(aux, 0, 0, c.width, c.height);
       tira.insertAdjacentHTML("beforeend",
-        `<button type="button" data-t="${aux.currentTime}" title="${fmt(aux.currentTime)}"><img src="${c.toDataURL("image/jpeg", .7)}" alt=""><span>${fmt(aux.currentTime).replace(/\.\d$/, "")}</span></button>`);
+        `<button type="button" data-t="${t}" title="${fmt(t)}"><img src="${c.toDataURL("image/jpeg", .7)}" alt=""><span>${fmt(t).replace(/\.\d$/, "")}</span></button>`);
+      if(!tira.querySelector(".on")) marcarEnTira();
+    };
+    if("requestVideoFrameCallback" in aux){
+      let proximo = 0;
+      await new Promise(listo => {
+        const cuadro = (_, info) => {
+          if(ctrl.signal.aborted){ listo(); return; }
+          if(info.mediaTime >= proximo){ agregar(info.mediaTime); proximo += paso; }
+          aux.requestVideoFrameCallback(cuadro);
+        };
+        aux.requestVideoFrameCallback(cuadro);
+        aux.onended = listo; aux.onerror = listo;
+        aux.playbackRate = 16;
+        aux.play().catch(listo);
+      });
+    }else{
+      for(let t = 0; t < dur && !ctrl.signal.aborted; t += paso){
+        await new Promise(ok => { aux.onseeked = ok; aux.currentTime = Math.min(t + .05, dur - .05); });
+        agregar(aux.currentTime);
+      }
     }
+    aux.pause();
     aux.removeAttribute("src"); aux.load();
     marcarEnTira();
     tira.querySelector(".on")?.scrollIntoView({block:"nearest", inline:"center"});
