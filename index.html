@@ -604,7 +604,8 @@ button.mover-op:hover{border-color:var(--gold);background:var(--gold-pale)}
 .fotograma-tira{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 10px;margin:0 0 14px;scroll-snap-type:x proximity}
 .fotograma-tira button{flex:0 0 58px;padding:0;border:2px solid transparent;border-radius:8px;overflow:hidden;background:#000;cursor:pointer;
   scroll-snap-align:center;position:relative}
-.fotograma-tira button img{display:block;width:100%;aspect-ratio:9/16;object-fit:cover}
+.fotograma-tira button img{display:block;width:100%;height:100%;object-fit:cover}
+.fotograma-tira button img:not([src]){visibility:hidden}
 .fotograma-tira button span{position:absolute;left:0;right:0;bottom:0;font-size:9.5px;color:#fff;background:rgba(14,42,74,.6);text-align:center;padding:1px 0}
 .fotograma-tira button.on{border-color:var(--gold-deep)}
 .fotograma-tira-aviso{font-size:11.5px;color:var(--muted);text-align:center;margin:0 0 10px}
@@ -7572,6 +7573,27 @@ function pedirLinkDrive({coll, id, field}){
    acaba de subir ya está; si no, se descarga de Drive con el permiso de la app. Drive
    solo deja descargar los videos que subió la app: para uno conectado con link se pide
    el archivo desde la computadora. */
+/* Videos ya bajados de Drive, guardados en este navegador (Cache Storage) para que la
+   portada de un reel abra al instante la próxima vez, aunque se haya recargado la app.
+   Se guardan los últimos 6; los más viejos se borran solos. Y las miniaturas de la
+   tira, por video, mientras la pestaña siga abierta. */
+const CACHE_VIDEOS = "mila-videos-v1";
+const tirasHechas = new Map();
+async function videoDeCache(fileId){
+  try{
+    const c = await caches.open(CACHE_VIDEOS);
+    const r = await c.match(`/video/${fileId}`);
+    return r ? await r.blob() : null;
+  }catch(e){ return null; }
+}
+async function guardarVideoEnCache(fileId, blob){
+  try{
+    const c = await caches.open(CACHE_VIDEOS);
+    await c.put(`/video/${fileId}`, new Response(blob, { headers: { "Content-Type": blob.type } }));
+    const claves = await c.keys();
+    for(const k of claves.slice(0, Math.max(0, claves.length - 6))) await c.delete(k);
+  }catch(e){ /* sin espacio o sin permiso: simplemente no se guarda */ }
+}
 async function elegirPortadaDelVideo(id){
   if(!guard()) return;
   const r = find("reels", id);
@@ -7644,49 +7666,76 @@ async function elegirPortadaDelVideo(id){
     if(b){ v.currentTime = Number(b.dataset.t); b.scrollIntoView({block:"nearest", inline:"center", behavior:"smooth"}); }
   };
   /* Una miniatura por segundo (hasta 120; en videos más largos se espacian), sacadas con
-     un segundo reproductor oculto para no mover el que se está mirando. El video se
-     recorre de corrido a 16x y se toma un cuadro cada vez que pasa el segundo siguiente:
-     saltar segundo por segundo obliga a decodificar desde el cuadro clave en cada salto
-     y tarda varios segundos por miniatura. */
+     reproductores ocultos para no mover el que se está mirando.
+     - Las casillas se dibujan todas de entrada y se llenan a medida que salen: se puede
+       hacer clic en cualquiera aunque todavía no tenga imagen.
+     - El video se reparte en cuatro tramos que se recorren a la vez, cada uno de corrido
+       a 16x, tomando un cuadro cada vez que pasa el segundo siguiente. Saltar segundo por
+       segundo obliga a decodificar desde el cuadro clave en cada salto y es mucho más lento.
+     - Las miniaturas quedan guardadas por video mientras la pestaña siga abierta. */
   const armarTira = async src => {
-    const aux = document.createElement("video");
-    aux.muted = true; aux.playsInline = true; aux.preload = "auto"; aux.src = src;
-    await new Promise((ok, mal) => { aux.onloadedmetadata = ok; aux.onerror = mal; }).catch(() => null);
-    const dur = aux.duration;
+    const t0 = performance.now();
+    const meta = document.createElement("video");
+    meta.muted = true; meta.preload = "metadata"; meta.src = src;
+    await new Promise((ok, mal) => { meta.onloadedmetadata = ok; meta.onerror = mal; }).catch(() => null);
+    const dur = meta.duration, ancho = meta.videoWidth || 9, alto = meta.videoHeight || 16;
+    meta.removeAttribute("src"); meta.load();
     if(!dur || !isFinite(dur)) return;
     const paso = Math.max(1, dur / 120);
-    const c = document.createElement("canvas");
-    c.width = 120; c.height = Math.round(120 * (aux.videoHeight || 16) / (aux.videoWidth || 9));
-    const g = c.getContext("2d");
-    const agregar = t => {
-      g.drawImage(aux, 0, 0, c.width, c.height);
-      tira.insertAdjacentHTML("beforeend",
-        `<button type="button" data-t="${t}" title="${fmt(t)}"><img src="${c.toDataURL("image/jpeg", .7)}" alt=""><span>${fmt(t).replace(/\.\d$/, "")}</span></button>`);
-      if(!tira.querySelector(".on")) marcarEnTira();
-    };
-    if("requestVideoFrameCallback" in aux){
-      let proximo = 0;
-      await new Promise(listo => {
-        const cuadro = (_, info) => {
-          if(ctrl.signal.aborted){ listo(); return; }
-          if(info.mediaTime >= proximo){ agregar(info.mediaTime); proximo += paso; }
-          aux.requestVideoFrameCallback(cuadro);
-        };
-        aux.requestVideoFrameCallback(cuadro);
-        aux.onended = listo; aux.onerror = listo;
-        aux.playbackRate = 16;
-        aux.play().catch(listo);
-      });
-    }else{
-      for(let t = 0; t < dur && !ctrl.signal.aborted; t += paso){
-        await new Promise(ok => { aux.onseeked = ok; aux.currentTime = Math.min(t + .05, dur - .05); });
-        agregar(aux.currentTime);
-      }
-    }
-    aux.pause();
-    aux.removeAttribute("src"); aux.load();
+    const n = Math.max(1, Math.floor(dur / paso));
+    const guardadas = (fileId && tirasHechas.get(fileId)) || [];
+    tira.innerHTML = Array.from({length:n}, (_, i) => `<button type="button" data-t="${i * paso}" title="${fmt(i * paso)}" style="aspect-ratio:${ancho}/${alto}">
+      <img alt="" ${guardadas[i] ? `src="${guardadas[i]}"` : ""}><span>${fmt(i * paso).replace(/\.\d$/, "")}</span></button>`).join("");
     marcarEnTira();
     tira.querySelector(".on")?.scrollIntoView({block:"nearest", inline:"center"});
+    if(guardadas.length >= n && guardadas.every(Boolean)) return;
+    const botones = [...tira.children];
+    const hechas = guardadas.slice();
+    const poner = (i, t, url) => {
+      const bt = botones[i]; if(!bt) return;
+      bt.dataset.t = t; bt.querySelector("img").src = url;
+      hechas[i] = url;
+    };
+    const recorrer = async (desde, hasta) => {
+      const aux = document.createElement("video");
+      aux.muted = true; aux.playsInline = true; aux.preload = "auto"; aux.src = src;
+      const c = document.createElement("canvas");
+      c.width = 120; c.height = Math.round(120 * alto / ancho);
+      const g = c.getContext("2d");
+      const tomar = (i, t) => { g.drawImage(aux, 0, 0, c.width, c.height); poner(i, t, c.toDataURL("image/jpeg", .7)); };
+      try{
+        await new Promise((ok, mal) => { aux.onloadedmetadata = ok; aux.onerror = mal; });
+        await new Promise(ok => { aux.onseeked = ok; aux.currentTime = desde * paso; });
+        if("requestVideoFrameCallback" in aux){
+          let i = desde;
+          tomar(i++, aux.currentTime);
+          await new Promise(listo => {
+            const cuadro = (_, info) => {
+              if(ctrl.signal.aborted || i >= hasta){ listo(); return; }
+              if(info.mediaTime >= i * paso) tomar(i++, info.mediaTime);
+              if(i >= hasta){ listo(); return; }
+              aux.requestVideoFrameCallback(cuadro);
+            };
+            aux.requestVideoFrameCallback(cuadro);
+            aux.onended = listo; aux.onerror = listo;
+            aux.playbackRate = 16;
+            aux.play().catch(listo);
+          });
+        }
+        // lo que faltó (o todo, donde no hay requestVideoFrameCallback) se saca saltando
+        for(let i = desde; i < hasta && !ctrl.signal.aborted; i++){
+          if(hechas[i]) continue;
+          await new Promise(ok => { aux.onseeked = ok; aux.currentTime = Math.min(i * paso + .05, dur - .05); });
+          tomar(i, aux.currentTime);
+        }
+      }catch(e){ /* un tramo que falla deja sus casillas sin imagen, pero se pueden usar */ }
+      aux.pause(); aux.removeAttribute("src"); aux.load();
+    };
+    const PARTES = Math.min(4, n), porParte = Math.ceil(n / PARTES);
+    await Promise.all(Array.from({length:PARTES}, (_, p) => recorrer(p * porParte, Math.min(n, (p + 1) * porParte))));
+    if(fileId && !ctrl.signal.aborted) tirasHechas.set(fileId, hechas);
+    console.info(`Portada del reel: tira de ${n} miniaturas en ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+    marcarEnTira();
   };
 
   // sin el archivo en Drive al alcance, se pide el mismo video desde la computadora
@@ -7706,7 +7755,13 @@ async function elegirPortadaDelVideo(id){
     };
   };
 
-  if(fileId && videoLocal.has(fileId)) mostrar(videoLocal.get(fileId));
+  const t0 = performance.now();
+  const guardado = fileId && !videoLocal.has(fileId) ? await videoDeCache(fileId) : null;
+  if(guardado) videoLocal.set(fileId, URL.createObjectURL(guardado));
+  if(fileId && videoLocal.has(fileId)){
+    console.info(`Portada del reel: video ${guardado ? "sacado del navegador" : "ya abierto"} en ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+    mostrar(videoLocal.get(fileId));
+  }
   else if(!fileId || !auth.token){
     pedirArchivo(auth.failed ? "No se pudo autorizar Google Drive para traer el video." : "El video no está en Google Drive.");
   }else{
@@ -7724,6 +7779,8 @@ async function elegirPortadaDelVideo(id){
         if(total) carga.querySelector("b").textContent = Math.round(llevo / total * 100) + "%";
       }
       const blob = new Blob(partes, { type: res.headers.get("Content-Type") || "video/mp4" });
+      console.info(`Portada del reel: video bajado de Drive (${(llevo / 1048576).toFixed(1)} MB) en ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+      guardarVideoEnCache(fileId, blob);
       // queda en esta computadora: la tarjeta lo reproduce desde aquí y la próxima vez abre al instante
       const local = URL.createObjectURL(blob);
       videoLocal.set(fileId, local);
