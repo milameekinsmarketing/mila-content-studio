@@ -7594,6 +7594,49 @@ async function guardarVideoEnCache(fileId, blob){
     for(const k of claves.slice(0, Math.max(0, claves.length - 6))) await c.delete(k);
   }catch(e){ /* sin espacio o sin permiso: simplemente no se guarda */ }
 }
+/* Baja un archivo de Drive en varios trozos a la vez (pedidos con Range). Un solo
+   pedido baja a unos 5 Mbps aunque la conexión dé para más: un video de 43 MB tardaba
+   más de un minuto. Si Drive no responde trozos (o no se sabe el tamaño), se baja entero. */
+async function bajarDeDrive(fileId, token, signal, onProgress){
+  const base = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`;
+  const H = { Authorization: `Bearer ${token}` };
+  let total = 0, tipo = "video/mp4";
+  try{
+    const m = await fetch(`${base}?fields=size,mimeType`, { headers: H, signal });
+    if(m.ok){ const j = await m.json(); total = Number(j.size) || 0; tipo = j.mimeType || tipo; }
+  }catch(e){ if(signal.aborted) throw e; }
+  const leer = async (res, sumar) => {
+    const lector = res.body.getReader(), trozos = [];
+    for(;;){
+      const { done, value } = await lector.read();
+      if(done) break;
+      trozos.push(value); sumar(value.length);
+    }
+    return new Blob(trozos);
+  };
+  let llevo = 0;
+  const sumar = n => { llevo += n; if(total) onProgress(Math.min(1, llevo / total)); };
+  const PARTES = total > 8 * 1048576 ? 8 : total > 2 * 1048576 ? 4 : 1;
+  if(PARTES > 1){
+    try{
+      const tam = Math.ceil(total / PARTES);
+      const partes = await Promise.all(Array.from({length:PARTES}, async (_, i) => {
+        const desde = i * tam, hasta = Math.min(total, desde + tam) - 1;
+        const res = await fetch(`${base}?alt=media`, { headers: { ...H, Range: `bytes=${desde}-${hasta}` }, signal });
+        if(res.status !== 206) throw new Error("sin trozos: HTTP " + res.status);
+        return leer(res, sumar);
+      }));
+      const blob = new Blob(partes, { type: tipo });
+      if(blob.size === total) return { blob, partes: PARTES };
+    }catch(e){ if(signal.aborted) throw e; console.warn("Drive no dio trozos, se baja entero", e); }
+    llevo = 0;
+  }
+  const res = await fetch(`${base}?alt=media`, { headers: H, signal });
+  if(!res.ok) throw new Error("HTTP " + res.status);
+  if(!total) total = Number(res.headers.get("Content-Length")) || 0;
+  const blob = await leer(res, sumar);
+  return { blob: new Blob([blob], { type: res.headers.get("Content-Type") || tipo }), partes: 1 };
+}
 async function elegirPortadaDelVideo(id){
   if(!guard()) return;
   const r = find("reels", id);
@@ -7766,20 +7809,11 @@ async function elegirPortadaDelVideo(id){
     pedirArchivo(auth.failed ? "No se pudo autorizar Google Drive para traer el video." : "El video no está en Google Drive.");
   }else{
     try{
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
-        { headers: { Authorization: `Bearer ${auth.token}` }, signal: ctrl.signal });
-      if(!res.ok) throw new Error("HTTP " + res.status);
-      const total = Number(res.headers.get("Content-Length")) || 0;
-      const lector = res.body.getReader(), partes = [];
-      let llevo = 0;
-      for(;;){
-        const { done, value } = await lector.read();
-        if(done) break;
-        partes.push(value); llevo += value.length;
-        if(total) carga.querySelector("b").textContent = Math.round(llevo / total * 100) + "%";
-      }
-      const blob = new Blob(partes, { type: res.headers.get("Content-Type") || "video/mp4" });
-      console.info(`Portada del reel: video bajado de Drive (${(llevo / 1048576).toFixed(1)} MB) en ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+      const b = carga.querySelector("b");
+      const { blob, partes: nPartes } = await bajarDeDrive(fileId, auth.token, ctrl.signal,
+        frac => { b.textContent = Math.round(frac * 100) + "%"; });
+      const llevo = blob.size;
+      console.info(`Portada del reel: video bajado de Drive en ${nPartes} trozos (${(llevo / 1048576).toFixed(1)} MB) en ${((performance.now() - t0) / 1000).toFixed(1)} s`);
       guardarVideoEnCache(fileId, blob);
       // queda en esta computadora: la tarjeta lo reproduce desde aquí y la próxima vez abre al instante
       const local = URL.createObjectURL(blob);
