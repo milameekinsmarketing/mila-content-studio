@@ -7360,6 +7360,8 @@ function fileToMediaUrl(f, auth, kind, onProgress){
         if(poster && fileId) videoPosters.set(fileId, poster);
         // el archivo ya está en esta computadora: se reproduce desde aquí sin esperar a Drive
         if(fileId) videoLocal.set(fileId, URL.createObjectURL(f));
+        // y queda guardado en el navegador: elegir su portada no tendrá que bajarlo de Drive
+        if(fileId) guardarVideoEnCache(fileId, f);
         resolve(url);
       }catch(e){
         console.warn("No se pudo subir el video a Google Drive", e);
@@ -7637,6 +7639,127 @@ async function bajarDeDrive(fileId, token, signal, onProgress){
   const blob = await leer(res, sumar);
   return { blob: new Blob([blob], { type: res.headers.get("Content-Type") || tipo }), partes: 1 };
 }
+/* Miniaturas de la tira sacadas con WebCodecs: se lee el índice del MP4 (mp4box.js) y
+   se decodifica cada tramo desde su cuadro clave hasta el segundo pedido, sin
+   reproducir nada. Es muchísimo más rápido que recorrer el video con un reproductor:
+   en la computadora de la clienta eso iba a velocidad normal (67 s para un reel de
+   69 s). Si el navegador no tiene WebCodecs o el archivo no se puede leer, se lanza
+   un error y la tira usa el camino de antes. */
+let mp4boxCargando = null;
+function cargarMp4box(){
+  if(window.MP4Box) return Promise.resolve();
+  return mp4boxCargando ||= new Promise((ok, mal) => {
+    const sc = document.createElement("script");
+    sc.src = "https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js";
+    sc.onload = ok;
+    sc.onerror = () => { mp4boxCargando = null; mal(new Error("no cargó mp4box")); };
+    document.head.appendChild(sc);
+  });
+}
+async function miniaturasRapidas(blob, n, paso, poner, signal){
+  if(typeof VideoDecoder === "undefined") throw new Error("sin WebCodecs");
+  await cargarMp4box();
+  const buf = await blob.arrayBuffer();
+  buf.fileStart = 0;
+  const file = MP4Box.createFile();
+  let pista = null, fallo = null;
+  const muestras = [];
+  file.onError = e => { fallo = e; };
+  file.onReady = info => {
+    pista = info.videoTracks[0];
+    if(!pista) return;
+    file.setExtractionOptions(pista.id, null, { nbSamples: 1000 });
+    file.start();
+  };
+  file.onSamples = (_, __, ss) => { muestras.push(...ss); };
+  file.appendBuffer(buf);
+  file.flush();
+  if(fallo || !pista || !muestras.length) throw new Error("no se pudo leer el MP4: " + (fallo || "sin muestras"));
+
+  const DS = window.DataStream || MP4Box.DataStream;
+  let description;
+  for(const e of file.getTrackById(pista.id).mdia.minf.stbl.stsd.entries){
+    const caja = e.avcC || e.hvcC || e.vpcC || e.av1C;
+    if(caja){
+      const ds = new DS(undefined, 0, DS.BIG_ENDIAN);
+      caja.write(ds);
+      description = new Uint8Array(ds.buffer, 8);
+      break;
+    }
+  }
+  const config = { codec: pista.codec, codedWidth: pista.video.width, codedHeight: pista.video.height, description };
+  if(!(await VideoDecoder.isConfigSupported(config)).supported) throw new Error("códec no soportado: " + pista.codec);
+
+  // giro guardado en el archivo (videos de teléfono grabados en vertical)
+  const m = pista.matrix || [];
+  const giro = (Math.round(Math.atan2(m[1] || 0, m[0] || 65536) * 180 / Math.PI) + 360) % 360;
+  const vertical = giro === 90 || giro === 270;
+  const anchoReal = vertical ? pista.video.height : pista.video.width;
+  const altoReal = vertical ? pista.video.width : pista.video.height;
+  const c = document.createElement("canvas");
+  c.width = 120; c.height = Math.round(120 * altoReal / anchoReal);
+  const g = c.getContext("2d");
+  const dibujar = frame => {
+    g.save();
+    if(giro === 90){ g.translate(c.width, 0); g.rotate(Math.PI / 2); g.drawImage(frame, 0, 0, c.height, c.width); }
+    else if(giro === 270){ g.translate(0, c.height); g.rotate(-Math.PI / 2); g.drawImage(frame, 0, 0, c.height, c.width); }
+    else if(giro === 180){ g.translate(c.width, c.height); g.rotate(Math.PI); g.drawImage(frame, 0, 0, c.width, c.height); }
+    else g.drawImage(frame, 0, 0, c.width, c.height);
+    g.restore();
+  };
+
+  const seg = x => x.cts / x.timescale;
+  const claves = muestras.map((x, i) => x.is_sync ? i : -1).filter(i => i >= 0);
+  if(!claves.length) throw new Error("sin cuadros clave");
+  // cada casilla se saca desde el último cuadro clave anterior a su segundo
+  const grupos = new Map();
+  for(let i = 0; i < n; i++){
+    const T = i * paso;
+    let k = claves[0];
+    for(const x of claves){ if(seg(muestras[x]) <= T + .001) k = x; else break; }
+    if(!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push(i);
+  }
+
+  let pendientes = [], errorDec = null;
+  const dec = new VideoDecoder({
+    output: frame => {
+      const t = frame.timestamp / 1e6;
+      if(pendientes.length){
+        dibujar(frame);
+        let url = null;
+        while(pendientes.length && pendientes[0] * paso <= t + .02){
+          poner(pendientes.shift(), t, url ||= c.toDataURL("image/jpeg", .7));
+        }
+      }
+      frame.close();
+    },
+    error: e => { errorDec = e; }
+  });
+  dec.configure(config);
+  try{
+    for(const [k, casillas] of grupos){
+      if(signal.aborted || errorDec) break;
+      pendientes = casillas.slice();
+      const hastaT = casillas[casillas.length - 1] * paso + .5;
+      for(let j = k; j < muestras.length; j++){
+        const x = muestras[j];
+        if(j > k && x.is_sync) break;
+        dec.decode(new EncodedVideoChunk({
+          type: x.is_sync ? "key" : "delta", timestamp: Math.round(x.cts * 1e6 / x.timescale),
+          duration: Math.round(x.duration * 1e6 / x.timescale), data: x.data
+        }));
+        if(seg(x) > hastaT) break;
+      }
+      await dec.flush();
+      // lo que quedó sin cuadro (final del tramo) se queda con el último dibujado
+      if(pendientes.length){ const url = c.toDataURL("image/jpeg", .7); pendientes.forEach(i => poner(i, i * paso, url)); }
+    }
+  }finally{
+    try{ dec.close(); }catch(e){}
+  }
+  if(errorDec) throw errorDec;
+}
 async function elegirPortadaDelVideo(id){
   if(!guard()) return;
   const r = find("reels", id);
@@ -7774,10 +7897,16 @@ async function elegirPortadaDelVideo(id){
       }catch(e){ /* un tramo que falla deja sus casillas sin imagen, pero se pueden usar */ }
       aux.pause(); aux.removeAttribute("src"); aux.load();
     };
-    const PARTES = Math.min(4, n), porParte = Math.ceil(n / PARTES);
+    let rapido = false;
+    try{
+      const blob = await (await fetch(src)).blob();
+      await miniaturasRapidas(blob, n, paso, poner, ctrl.signal);
+      rapido = hechas.filter(Boolean).length >= n;
+    }catch(e){ console.warn("Portada del reel: miniaturas rápidas no disponibles, se usa el reproductor", e); }
+    const PARTES = rapido ? 0 : Math.min(4, n), porParte = Math.ceil(n / Math.max(1, PARTES));
     await Promise.all(Array.from({length:PARTES}, (_, p) => recorrer(p * porParte, Math.min(n, (p + 1) * porParte))));
     if(fileId && !ctrl.signal.aborted) tirasHechas.set(fileId, hechas);
-    console.info(`Portada del reel: tira de ${n} miniaturas en ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+    console.info(`Portada del reel: tira de ${n} miniaturas (${rapido ? "WebCodecs" : "reproductor"}) en ${((performance.now() - t0) / 1000).toFixed(1)} s`);
     marcarEnTira();
   };
 
