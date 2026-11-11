@@ -9739,17 +9739,18 @@ function monthSlotCount(mi){
 }
 
 /* Número de publicación de un espacio de la grilla, tal como se publica de verdad:
-   la PRIMERA publicación del mes es la de ABAJO A LA IZQUIERDA, y de ahí se avanza de
-   izquierda a derecha; al terminar la fila se sube a la de arriba. Así, en un mes de 24
-   espacios (8 filas de 3), el de abajo-izquierda es el #1, el de abajo-derecha el #3, y
-   el de arriba-derecha —el último en publicarse— el #24.
+   Instagram pone lo más nuevo arriba a la izquierda, así que la PRIMERA publicación del
+   mes es la de ABAJO A LA DERECHA, y cada fila se llena de derecha a izquierda; al
+   terminar la fila se sube a la de arriba. Así, en un mes de 24 espacios (8 filas de 3),
+   el de abajo-derecha es el #1, el de abajo-izquierda el #3, y el de arriba-izquierda
+   —el último en publicarse— el #24.
    El número es uno solo compartido entre Posts, Reels y Carruseles: lo que cambia entre
    ellos es el formato, no la numeración. */
 function feedPubOrder(slot, cells){
   const rows = Math.ceil(cells / FEED_COLS);
   const row  = Math.floor(slot / FEED_COLS);
   const col  = slot % FEED_COLS;
-  return (rows - 1 - row) * FEED_COLS + col + 1;
+  return (rows - 1 - row) * FEED_COLS + (FEED_COLS - 1 - col) + 1;
 }
 
 /* Dónde está colocada una pieza en TODO el feed (cualquier mes), o null si no está. */
