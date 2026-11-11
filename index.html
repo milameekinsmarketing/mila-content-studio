@@ -110,6 +110,10 @@ body::before{
 .prog-chip:hover{border-color:var(--gold-soft);background:var(--gold-pale);color:var(--navy)}
 .prog-chip.on{background:#EAF6EF;border-color:#CFE8DA;color:var(--ok)}
 .prog-chip.on svg{color:var(--ok)}
+.prog-chip.publicado{background:#EAF6EF;border-color:#CFE8DA;color:var(--ok);text-decoration:none}
+.prog-chip.publicado svg{color:var(--ok)}
+.prog-chip.error{background:#FBECEC;border-color:#F0C9C9;color:var(--danger);max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block}
+.prog-chip.error svg{color:var(--danger);vertical-align:-2px;margin-right:6px}
 .prog-modal{max-width:520px;text-align:left}
 .prog-titulo{font-size:13px;color:var(--navy);font-weight:600;margin:-6px 0 14px}
 .prog-aviso{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#43566C;line-height:1.5;
@@ -6587,6 +6591,7 @@ async function onAuthed(session){
   updateCloudStatus();
   if(!S.savedAt) persist(true);
   subscribeRealtime();
+  revisarPublicaciones();
 }
 
 /* ¿Responde el servidor de Supabase? Si no, se ofrece la copia local. Es una llamada
@@ -6911,6 +6916,13 @@ function scheduleBtnHTML(coll, id){
   const p = it && it.programado;
   if(p && p.fecha){
     const cuando = String(p.fecha).replace("T", " ").slice(0, 16);
+    if(p.estado === "error") return `<button type="button" class="prog-chip error" data-schedule data-coll="${coll}" data-id="${id}" title="${esc(p.error || "")}">
+      <svg><use href="#i-alert"/></svg>Falló al publicar · ${esc(p.error || cuando)}</button>`;
+    if(it.published && p.estado === "publicado"){
+      const enlace = Object.values(p.enlaces || {}).find(Boolean);
+      return `<a class="prog-chip publicado" ${enlace ? `href="${esc(enlace)}" target="_blank" rel="noopener"` : ""} title="${enlace ? "Ver la publicación" : ""}">
+        <svg><use href="#i-check-plain"/></svg>Publicado solo · ${esc(cuando)} · ${esc((p.redes||[]).join(", "))}</a>`;
+    }
     return `<button type="button" class="prog-chip on" data-schedule data-coll="${coll}" data-id="${id}" title="Ver o reprogramar">
       <svg><use href="#i-clock"/></svg>${esc(cuando)} · ${esc((p.redes||[]).join(", "))}</button>`;
   }
@@ -7273,6 +7285,69 @@ function timeAgo(ts){
   if(d < 172800) return "ayer";
   return `hace ${Math.floor(d/86400)} días`;
 }
+/* ---------- Lo que pasó con lo programado ----------
+   Cada pocos minutos, con la app abierta, se le pregunta a Metricool cómo quedó cada
+   pieza programada cuya hora ya pasó. Si salió en todas sus redes se marca publicada;
+   si alguna falló, la pieza queda marcada con el error y se avisa. Solo se avisa cuando
+   el estado cambia, así que abrir la app otra vez no repite los avisos. */
+const REVISAR_PUB_MS = 5 * 60 * 1000;
+let revisandoPub = false;
+async function revisarPublicaciones(){
+  if(revisandoPub || !metricoolEnabled() || !sbClient || !currentUser || !canEdit()) return;
+  const marca = brandById(activeBrandId);
+  if(!marca.metricoolBlogId) return;
+  const ahora = Date.now();
+  const porId = new Map();
+  COLL.forEach(c => (S[c] || []).forEach(x => {
+    const p = x.programado;
+    if(p && p.id && !p.borrador && !(x.published && p.estado === "publicado") && Date.parse(p.fecha) <= ahora)
+      porId.set(String(p.id), [c, x.id]);
+  }));
+  if(!porId.size) return;
+  revisandoPub = true;
+  const marcaAntes = activeBrandId;
+  try{
+    const res = await llamarMetricool({accion:"estado", blogId: marca.metricoolBlogId, ids:[...porId.keys()].slice(0, 40)});
+    if(activeBrandId !== marcaAntes) return;
+    let cambio = false;
+    for(const e of res.estados || []){
+      const [c, id] = porId.get(String(e.id)) || [];
+      const it = c && find(c, id);
+      const p = it && it.programado;
+      if(!p || String(p.id) !== String(e.id) || !(e.redes || []).length) continue;
+      const nombre = esc(it.title || it.idea || "Pieza");
+      const fallidas = e.redes.filter(r => r.status === "ERROR");
+      if(fallidas.length){
+        const msg = fallidas.map(r => `${r.network}: ${r.detalle || "error sin detalle"}`).join(" · ");
+        if(p.estado === "error" && p.error === msg) continue;
+        p.estado = "error"; p.error = msg;
+        logActivity("alert", `<b>No se publicó:</b> ${nombre} (${esc(PROG_LABEL[c] || c)}). ${esc(msg)}`);
+        toast(`No se publicó «${it.title || it.idea || "una pieza"}»: ${msg}`, "alert", true);
+        cambio = true;
+      }else if(e.redes.every(r => r.status === "PUBLISHED")){
+        it.published = true;
+        p.estado = "publicado"; delete p.error;
+        p.enlaces = Object.fromEntries(e.redes.map(r => [r.network, r.publicUrl || ""]));
+        logActivity("check", `<b>Publicado solo:</b> ${nombre} (${esc(PROG_LABEL[c] || c)}) en ${esc(e.redes.map(r => r.network).join(", "))}.`);
+        toast(`Se publicó «${it.title || it.idea || "una pieza"}» en ${e.redes.map(r => r.network).join(", ")}`, "check");
+        cambio = true;
+      }
+    }
+    if(!cambio) return;
+    touch();
+    // mientras se escribe no se repinta: se perdería el foco; lo cambiado ya quedó guardado
+    const escribiendo = document.activeElement && document.activeElement.matches("input, textarea, select");
+    if(!escribiendo){ const y = window.scrollY; render(); window.scrollTo({top:y}); }
+  }catch(e){
+    // la función todavía sin la acción "estado", o Metricool caído: se reintenta en el próximo turno
+    console.warn("No se pudo consultar el estado en Metricool", e);
+  }finally{
+    revisandoPub = false;
+  }
+}
+setInterval(revisarPublicaciones, REVISAR_PUB_MS);
+document.addEventListener("visibilitychange", () => { if(!document.hidden) revisarPublicaciones(); });
+
 function logActivity(type, text){
   S.activity.unshift({id:uid("a"), type, text, at:now()});
   S.activity = S.activity.slice(0, 12);
@@ -9180,6 +9255,7 @@ function tileCardHTML(coll, it, i){
       : p && p.fechaSolo ? `<span class="tile-chip prog"><svg><use href="#i-clock"/></svg>${esc(p.fechaSolo.slice(5).split("-").reverse().join("/"))} · ${esc(p.horaSolo)}</span>`
       : aprobado ? `<span class="tile-chip ok"><svg><use href="#i-check-plain"/></svg>Aprobado</span>` : "",
     it.designApproved === false ? `<span class="tile-chip mal">Diseño desaprobado</span>` : "",
+    p && p.estado === "error" ? `<span class="tile-chip mal" title="${esc(p.error || "")}"><svg><use href="#i-alert"/></svg>No se publicó</span>` : "",
     coll === "reels" && it.video ? `<span class="tile-chip"><svg><use href="#i-play"/></svg>Video</span>` : "",
     it.musicaIg || it.musicaTiktok ? `<span class="tile-chip" title="${esc((it.musicaIg || it.musicaTiktok).title || "")}">♪ Música</span>` : "",
     it.ubicacion ? `<span class="tile-chip" title="${esc(it.ubicacion.name || "")}"><svg><use href="#i-pin"/></svg>Ubicación</span>` : ""
@@ -10683,6 +10759,7 @@ function switchBrand(id){
   historyReset();
   render();
   toast(`Ahora estás en ${brandById(id).label}`, "grid");
+  revisarPublicaciones();
 }
 
 /* ============================================================

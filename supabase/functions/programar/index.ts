@@ -127,7 +127,7 @@ Deno.serve(async (req) => {
     const {
       accion, id, blogId, texto = "", media = [], videos = [], redes = [],
       fecha, zona = "America/New_York", borrador = false, tipoInstagram, tipoFacebook,
-      q = "", cursor = "", ubicacion, audioIg, musicaTiktok, portada,
+      q = "", cursor = "", ubicacion, audioIg, musicaTiktok, portada, ids = [],
     } = await req.json();
 
     if (!blogId) return responder({ error: "Falta el blogId de la marca." }, 400);
@@ -139,6 +139,28 @@ Deno.serve(async (req) => {
       await metricool(`/v2/scheduler/posts/${encodeURIComponent(String(id))}`, blogId, { method: "DELETE" });
       return responder({ ok: true, borrada: id });
     }
+    // Cómo quedó lo programado: por cada publicación, el estado en cada red
+    // (PUBLISHED, PUBLISHING, PENDING, ERROR…), el enlace público y el detalle del error.
+    // La app lo consulta sola para marcar como publicado o avisar si falló.
+    if (accion === "estado") {
+      const lista = (ids as unknown[]).map(String).filter(Boolean).slice(0, 40);
+      const estados = await Promise.all(lista.map(async (pid) => {
+        try {
+          const r = await metricool(`/v2/scheduler/posts/${encodeURIComponent(pid)}`, blogId);
+          const post = r?.data ?? r ?? {};
+          return {
+            id: pid,
+            redes: (post.providers ?? []).map((p: Record<string, unknown>) => ({
+              network: p.network, status: p.status, publicUrl: p.publicUrl ?? "", detalle: p.detailedStatus ?? "",
+            })),
+          };
+        } catch (e) {
+          return { id: pid, error: String(e?.message ?? e).slice(0, 300) };
+        }
+      }));
+      return responder({ ok: true, estados });
+    }
+
     // Catálogos para elegir desde la app: música de Instagram, canciones en tendencia
     // de TikTok y lugares (Instagram y Facebook usan los lugares de Facebook).
     // Sin texto de búsqueda, Instagram devuelve sus sugerencias.
