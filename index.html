@@ -110,6 +110,11 @@ body::before{
 .prog-chip:hover{border-color:var(--gold-soft);background:var(--gold-pale);color:var(--navy)}
 .prog-chip.on{background:#EAF6EF;border-color:#CFE8DA;color:var(--ok)}
 .prog-chip.on svg{color:var(--ok)}
+.aviso-version{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:9999;display:flex;align-items:center;gap:12px;
+  max-width:min(720px,calc(100vw - 32px));background:#FBECEC;border:1px solid #F0C9C9;color:var(--danger);border-radius:14px;
+  padding:12px 14px;box-shadow:var(--shadow);font-size:13px;line-height:1.4}
+.aviso-version svg{width:20px;height:20px;flex:none}
+.aviso-version .btn{flex:none}
 .prog-chip.publicado{background:#EAF6EF;border-color:#CFE8DA;color:var(--ok);text-decoration:none}
 .prog-chip.publicado svg{color:var(--ok)}
 .prog-chip.error{background:#FBECEC;border-color:#F0C9C9;color:var(--danger);max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block}
@@ -6242,9 +6247,11 @@ function migrateFeedMonths(state){
 
 /* Lo que se guarda (en este navegador y en la nube) es un sobre con TODAS las marcas.
    S siempre es la marca que se está viendo; las demás esperan en BRANDS_DATA. */
+// la hora del commit, puesta al publicar (ver «Pestañas con una versión vieja»)
+const VERSION_APP = Number("__VERSION_APP__") || 0;
 function packWorkspace(){
   BRANDS_DATA[activeBrandId] = S;
-  return { v:4, brands: BRANDS_DATA };
+  return { v:4, brands: BRANDS_DATA, ...(VERSION_APP ? {appVersion: VERSION_APP} : {}) };
 }
 /* Acepta el sobre nuevo y también lo guardado antes de que existieran las marcas: ese
    formato viejo es, por definición, la marca original. Devuelve el estado de la marca
@@ -6387,6 +6394,7 @@ async function loadFromCloud(){
     const { data, error } = await sbClient.from("workspace_state").select("data,updated_at").eq("id", WORKSPACE_ID).maybeSingle();
     if(error) throw error;
     if(data && data.data){
+      if(versionMasNueva(data.data)) avisarVersionVieja();
       cloudBase = structuredClone(data.data); cloudStamp = data.updated_at;
       S = unpackWorkspace(data.data);
       historyReset();
@@ -6501,8 +6509,31 @@ function aplicarCombinado(datos){
   toast("Se sumaron cambios guardados desde otra pestaña o computadora", "history");
 }
 
+/* ---------- Pestañas con una versión vieja de la app ----------
+   Al publicar, GitHub pone en VERSION_APP la hora del commit (ver el flujo de Pages).
+   Cada guardado deja esa versión en el workspace. Si una pestaña ve en la nube una
+   versión más nueva que la suya, deja de guardar: su código viejo podría combinar mal y
+   pisar lo que guardó la nueva. Avisa y ofrece recargar. Abierta en local, sin pasar
+   por GitHub, la marca no se reemplaza y esto no actúa. */
+let appDesactualizada = false;
+function versionMasNueva(datos){
+  return !!VERSION_APP && Number(datos && datos.appVersion) > VERSION_APP;
+}
+function avisarVersionVieja(){
+  if(appDesactualizada) return;
+  appDesactualizada = true;
+  const aviso = document.createElement("div");
+  aviso.className = "aviso-version";
+  aviso.innerHTML = `<svg><use href="#i-alert"/></svg>
+    <span><b>Hay una versión nueva de la app.</b> Esta pestaña dejó de guardar para no pisar los cambios hechos con la nueva. Recárgala; lo que cambies aquí antes de recargar no se guarda.</span>
+    <button type="button" class="btn btn-gold btn-sm">Recargar</button>`;
+  aviso.querySelector("button").onclick = () => { location.href = location.pathname + "?v=" + Date.now(); };
+  document.body.appendChild(aviso);
+  updateSaveState();
+}
+
 async function syncToCloud(){
-  if(!sbClient || !currentUser) return;
+  if(!sbClient || !currentUser || appDesactualizada) return;
   if(cloudSaveInFlight){ cloudPending = true; return; }
   cloudSaveInFlight = true;
   updateSaveState();
@@ -6518,6 +6549,7 @@ async function syncToCloud(){
       if(errDatos) throw errDatos;
       remoto = completa;
     }
+    if(remoto && versionMasNueva(remoto.data)){ avisarVersionVieja(); return; }
     // la copia de esta pestaña se toma DESPUÉS de leer la nube: lo escrito mientras
     // tanto también entra
     const mio = structuredClone(packWorkspace());
@@ -6575,6 +6607,7 @@ function subscribeRealtime(){
     .on("postgres_changes", { event: "UPDATE", schema: "public", table: "workspace_state", filter: `id=eq.${WORKSPACE_ID}` }, payload => {
       const incoming = payload.new;
       if(!incoming || !incoming.data) return;
+      if(versionMasNueva(incoming.data)) avisarVersionVieja();
       // fue un guardado de esta misma pestaña. Antes se comparaba la cuenta, y con la
       // app abierta en dos pestañas (o dos computadoras) con la misma cuenta, cada una
       // ignoraba lo que guardaba la otra y al guardar la pisaba con su versión vieja.
@@ -6678,7 +6711,8 @@ async function boot(){
    cuando todo está en la nube. Pulsarlo igual fuerza un guardado en el momento. */
 function updateSaveState(){
   const enCamino = dirty || cloudSaveInFlight;
-  const label = !cloudSyncOK && sbClient && currentUser ? "Sin guardar · reintentando"
+  const label = appDesactualizada ? "Sin guardar · recarga la app"
+              : !cloudSyncOK && sbClient && currentUser ? "Sin guardar · reintentando"
               : enCamino ? "Guardando…" : "Guardado";
   $$('[data-action="save"]').forEach(b => {
     b.innerHTML = `<svg><use href="#i-${enCamino || !cloudSyncOK ? "save" : "check"}"/></svg> ${label}`;

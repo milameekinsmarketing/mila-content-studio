@@ -28,6 +28,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      # Marca la app con la hora del commit: así una pestaña con una versión vieja
+      # se da cuenta de que hay otra más nueva y deja de guardar (ver VERSION_APP).
+      - name: Marcar la versión de la app
+        run: sed -i "s/__VERSION_APP__/$(git log -1 --format=%ct)/" index.html
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Build with Jekyll

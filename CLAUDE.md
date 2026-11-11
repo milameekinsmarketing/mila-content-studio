@@ -242,6 +242,8 @@ literal "Primera casa vendida", "Segunda casa vendida"…
   Las mejoras del motor hay que portarlas a mano: es una copia, no un enlace.
 - `supabase/functions/programar/` — la función que programa en Metricool sin exponer el token.
 - `.github/workflows/` — despliegue a GitHub Pages en cada push a la rama por defecto.
+  Antes de publicar cambia `__VERSION_APP__` por la hora del commit: así una pestaña con
+  una versión vieja detecta que hay otra más nueva en la nube y deja de guardar.
 - `marketologa/` — **no es parte de esta app.** Es otro proyecto que comparte repositorio:
   piezas gráficas y videos para un curso de marketing. Ignórala si vienes a trabajar en el
   Content Studio. Pesa cientos de megas en archivos de video, así que clonar el
