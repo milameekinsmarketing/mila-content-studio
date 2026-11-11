@@ -7307,7 +7307,13 @@ async function revisarPublicaciones(){
   revisandoPub = true;
   const marcaAntes = activeBrandId;
   try{
-    const res = await llamarMetricool({accion:"estado", blogId: marca.metricoolBlogId, ids:[...porId.keys()].slice(0, 40)});
+    // el rango del calendario donde buscarlas: del día de la más vieja a mañana
+    const fechas = [...porId.values()].map(([c, id]) => Date.parse(find(c, id).programado.fecha));
+    const dia = t => new Date(t).toISOString().slice(0, 10);
+    const ids = [...porId.keys()].slice(0, 40);
+    const res = await llamarMetricool({accion:"estado", blogId: marca.metricoolBlogId, ids,
+      fechas: Object.fromEntries(ids.map(i => { const [c, id] = porId.get(i); return [i, find(c, id).programado.fecha]; })),
+      desde:`${dia(Math.min(...fechas) - 86400000)}T00:00:00`, hasta:`${dia(ahora + 86400000)}T23:59:59`, zona: METRICOOL_TZ});
     if(activeBrandId !== marcaAntes) return;
     let cambio = false;
     for(const e of res.estados || []){

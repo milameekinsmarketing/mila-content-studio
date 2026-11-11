@@ -127,7 +127,7 @@ Deno.serve(async (req) => {
     const {
       accion, id, blogId, texto = "", media = [], videos = [], redes = [],
       fecha, zona = "America/New_York", borrador = false, tipoInstagram, tipoFacebook,
-      q = "", cursor = "", ubicacion, audioIg, musicaTiktok, portada, ids = [],
+      q = "", cursor = "", ubicacion, audioIg, musicaTiktok, portada, ids = [], fechas = {}, desde, hasta,
     } = await req.json();
 
     if (!blogId) return responder({ error: "Falta el blogId de la marca." }, 400);
@@ -142,23 +142,46 @@ Deno.serve(async (req) => {
     // Cómo quedó lo programado: por cada publicación, el estado en cada red
     // (PUBLISHED, PUBLISHING, PENDING, ERROR…), el enlace público y el detalle del error.
     // La app lo consulta sola para marcar como publicado o avisar si falló.
+    // Primero se buscan en el calendario de esas fechas (así las lista Metricool), por su
+    // id o, si Metricool le dio otro, por su día y hora (la app no repite hora en una
+    // marca). La que no aparezca ahí se pide por su id.
     if (accion === "estado") {
       const lista = (ids as unknown[]).map(String).filter(Boolean).slice(0, 40);
+      const redesDe = (post: Record<string, unknown>) =>
+        ((post.providers ?? []) as Record<string, unknown>[]).map((p) => ({
+          network: p.network, status: p.status, publicUrl: p.publicUrl ?? "", detalle: p.detailedStatus ?? "",
+        }));
+      const enCalendario = new Map<string, Record<string, unknown>>();
+      const porHora = new Map<string, Record<string, unknown>>();
+      if (desde && hasta) {
+        try {
+          const ruta = new URLSearchParams({ start: String(desde), end: String(hasta), timezone: String(zona), extendedRange: "true" });
+          const r = await metricool(`/v2/scheduler/posts?${ruta}`, blogId);
+          for (const post of (r?.data ?? r ?? []) as Record<string, unknown>[]) {
+            enCalendario.set(String(post.id), post);
+            const hora = String((post.publicationDate as Record<string, unknown>)?.dateTime ?? "").slice(0, 16);
+            if (hora) porHora.set(hora, post);
+          }
+        } catch (e) {
+          console.log("calendario falló →", String(e?.message ?? e).slice(0, 300));
+        }
+      }
       const estados = await Promise.all(lista.map(async (pid) => {
+        const visto = enCalendario.get(pid) ?? porHora.get(String((fechas as Record<string, string>)[pid] ?? "").slice(0, 16));
+        if (visto) return { id: pid, metricoolId: String(visto.id), redes: redesDe(visto) };
         try {
           const r = await metricool(`/v2/scheduler/posts/${encodeURIComponent(pid)}`, blogId);
-          const post = r?.data ?? r ?? {};
-          return {
-            id: pid,
-            redes: (post.providers ?? []).map((p: Record<string, unknown>) => ({
-              network: p.network, status: p.status, publicUrl: p.publicUrl ?? "", detalle: p.detailedStatus ?? "",
-            })),
-          };
+          return { id: pid, redes: redesDe(r?.data ?? r ?? {}) };
         } catch (e) {
           return { id: pid, error: String(e?.message ?? e).slice(0, 300) };
         }
       }));
-      return responder({ ok: true, estados });
+      return responder({
+        ok: true, estados,
+        calendario: [...enCalendario.values()].map((p) => ({
+          id: p.id, fecha: (p.publicationDate as Record<string, unknown>)?.dateTime ?? "",
+        })),
+      });
     }
 
     // Catálogos para elegir desde la app: música de Instagram, canciones en tendencia
