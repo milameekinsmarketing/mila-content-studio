@@ -718,6 +718,19 @@ html.detalle-abierto{overflow:hidden}
 .para-redes.compacta .redes-vol label{justify-content:space-between}
 .para-redes.compacta .redes-vol input{flex:1;width:auto;min-width:0}
 .redes-vol input{width:110px;accent-color:var(--gold-deep)}
+.redes-tramo{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;padding:0 4px 2px 144px;font-size:11px;color:var(--muted)}
+.redes-tramo .btn svg{width:14px;height:14px}
+.para-redes.compacta .redes-tramo{padding-left:2px}
+.sel-oir.sonando{color:var(--gold-deep);border-color:var(--gold-soft)}
+.tramo-largos{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 14px}
+.tramo-largos .seg-btn{border:1px solid var(--line);border-radius:999px;padding:5px 12px;background:#fff;cursor:pointer;font:inherit;font-size:12.5px;color:var(--navy)}
+.tramo-largos .seg-btn.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+.tramo-largos .seg-btn:disabled{opacity:.35;cursor:default}
+.tramo-pista{position:relative;height:56px;border-radius:10px;cursor:pointer;touch-action:none;user-select:none;
+  background:repeating-linear-gradient(90deg,var(--line) 0 2px,transparent 2px 6px) center/100% 60% no-repeat,var(--cream-2)}
+.tramo-ventana{position:absolute;top:0;bottom:0;border:2px solid var(--gold-deep);border-radius:10px;background:rgba(184,146,82,.22);box-sizing:border-box}
+.tramo-cabezal{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--navy);display:none}
+.tramo-tiempos{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:6px}
 .redes-vol b{font-weight:500;color:var(--navy);min-width:32px}
 @media (max-width:700px){.redes-vol{padding-left:4px}}
 .sel-mas{align-self:center;margin-top:4px}
@@ -1225,6 +1238,7 @@ body.needs-auth .app{display:none}
   <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="M12 9v3.5l2.5 1.5"/></symbol>
   <symbol id="i-build" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 20h18M5 20V8l6-4 6 4v12"/><path d="M9 12h1.5M13.5 12H15M9 16h1.5M13.5 16H15"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l6 3.5-6 3.5z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M10 8.5v7M14 8.5v7"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
   <symbol id="i-grip" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="7" r="1.6"/><circle cx="15" cy="7" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="17" r="1.6"/><circle cx="15" cy="17" r="1.6"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 20h16"/></symbol>
@@ -6806,8 +6820,8 @@ async function enviarAMetricool(coll, id, {fechaSolo, horaSolo, redes, borrador=
     tipoInstagram: PROG_IG_TYPE[coll],
     tipoFacebook: PROG_FB_TYPE[coll],
     ubicacion: it.ubicacion || null,
-    audioIg: LLEVA_MUSICA(coll) ? (it.musicaIg || null) : null,
-    musicaTiktok: LLEVA_MUSICA(coll) ? (it.musicaTiktok || null) : null,
+    audioIg: MUSICA_IG_PROGRAMABLE(coll) ? audioIgParaMetricool(it.musicaIg) : null,
+    musicaTiktok: LLEVA_MUSICA(coll) ? musicaTiktokParaMetricool(it.musicaTiktok) : null,
     portada: video && it.cover && /^https?:/.test(it.cover) ? it.cover : ""
   });
   // se vuelve a buscar: mientras Metricool respondía, la vista pudo recargarse
@@ -9069,6 +9083,7 @@ function viewCarousels(q=""){
           ${field("Call To Action (CTA)","link", input("carousels", c.id, "cta", c.cta, "Link in bio, deja un comentario, etc."))}
         </div>
         ${field("Caption (texto final)","pen", textarea("carousels", c.id, "copy", c.copy, "El caption que acompaña al carrusel...", "soft", 3))}
+        ${paraRedesHTML("carousels", c)}
         ${starsHTML("carousels", c.id, c.rating)}
       </div>
     </div>`).join("") : emptyState("Sin carruseles", "Crea tu primer carrusel.", "carousels")}`;
@@ -9248,7 +9263,7 @@ function seleccionHTML(coll, it, campo, etiqueta, vacio){
         <span class="redes-val">${img ? `<img src="${esc(img)}" alt="">` : ""}<b>${esc(titulo)}</b>${sub ? ` · ${esc(sub)}` : ""}</span>
       </button>
       <button type="button" class="icon-btn lock-viewer" data-quitar-sel="${campo}" data-coll="${coll}" data-id="${it.id}" title="Quitar"><svg><use href="#i-x"/></svg></button>
-    </div>${campo === "musicaIg" ? volumenesHTML(coll, it) : ""}`;
+    </div>${campo === "musicaIg" || campo === "musicaTiktok" ? tramoHTML(coll, it, campo) : ""}${campo === "musicaIg" ? volumenesHTML(coll, it) : ""}`;
 }
 /* Instagram deja fijar el volumen de la canción y el de la voz del video, no el tramo
    de la canción: su API no tiene inicio ni fin. Por defecto la música va baja para que
@@ -9273,9 +9288,26 @@ document.addEventListener("input", e => {
   r.nextElementSibling.textContent = r.value + "%";
   touch();
 });
-/* Música en reels e historias. Las historias no llevan ubicación: Instagram no deja
-   ponerle el sticker de lugar a una historia programada desde fuera de su app. */
-const LLEVA_MUSICA = coll => coll === "reels" || coll === "stories";
+/* Música en reels, historias, posts y carruseles. Las historias no llevan ubicación:
+   Instagram no deja ponerle el sticker de lugar a una historia programada desde fuera
+   de su app. A Instagram la música programada solo le llega en reels e historias; en
+   posts y carruseles queda como guía para ponerla a mano. */
+const LLEVA_MUSICA = coll => ["reels", "stories", "posts", "carousels"].includes(coll);
+const MUSICA_IG_PROGRAMABLE = coll => coll === "reels" || coll === "stories";
+/* Lo que se le manda a Metricool: solo los campos que conoce. El tramo y el enlace de
+   la muestra son de la app. Instagram no recibe el tramo (su API no tiene inicio ni
+   fin); TikTok sí, en startMillis y endMillis. */
+function audioIgParaMetricool(m){
+  if(!m || !m.audioId) return null;
+  const {audioId, audioType, title, displayArtist, igUsername, coverArtworkUrl, durationMs, audioVolume, videoVolume} = m;
+  return {audioId, audioType, title, displayArtist, igUsername, coverArtworkUrl, durationMs, audioVolume, videoVolume};
+}
+function musicaTiktokParaMetricool(m){
+  if(!m || !m.musicId) return null;
+  const {musicId, title, author, previewUrl, thumbnailUrl} = m;
+  return {musicId, title, author, previewUrl, thumbnailUrl,
+    ...(m.tramo ? {startMillis: m.tramo.inicioMs, endMillis: m.tramo.finMs} : {})};
+}
 /* En la historia la música va plegada en una sola línea para que la tarjeta no crezca.
    Qué historias están abiertas vive aquí, no en S: así sobrevive a cada repintado. */
 const musicaAbierta = new Set();
@@ -9301,7 +9333,9 @@ function paraRedesHTML(coll, it){
     ${LLEVA_MUSICA(coll) ? seleccionHTML(coll, it, "musicaIg", "Música · Instagram", "Elegir canción…") : ""}
     ${LLEVA_MUSICA(coll) ? seleccionHTML(coll, it, "musicaTiktok", "Música · TikTok", "Elegir de las tendencias…") : ""}
     ${historia ? "" : seleccionHTML(coll, it, "ubicacion", "Ubicación", "Buscar lugar…")}
-    <small class="redes-nota">Se ${historia ? "manda con la historia" : "mandan con la publicación"} al programarla en Metricool${coll === "reels" ? ", junto con la portada" : ""}.</small>
+    <small class="redes-nota">${MUSICA_IG_PROGRAMABLE(coll) || !LLEVA_MUSICA(coll)
+      ? `Se mandan con la publicación al programarla en Metricool${coll === "reels" ? ", junto con la portada" : ""}. El pedazo de la canción le llega a TikTok; en Instagram queda como guía.`
+      : "Instagram no acepta música programada en posts ni carruseles: la canción y su pedazo quedan como guía para ponerla a mano. La ubicación sí se manda."}</small>
   </div>`;
 }
 
@@ -9316,7 +9350,8 @@ function normalizarResultados(campo, data){
     const d = data || {};
     return [...(d.music || []), ...(d.originalSound || [])].map(a => ({
       guardar: {audioId:a.audioId, audioType:a.audioType, title:a.title, displayArtist:a.displayArtist || "",
-                igUsername:a.igUsername || "", coverArtworkUrl:a.coverArtworkUrl || "", durationMs:a.durationMs || 0},
+                igUsername:a.igUsername || "", coverArtworkUrl:a.coverArtworkUrl || "", durationMs:a.durationMs || 0,
+                downloadUrl:a.downloadUrl || ""},
       titulo: a.title, sub: a.displayArtist || (a.igUsername ? "@" + a.igUsername : "Sonido original"),
       img: a.coverArtworkUrl, audio: a.downloadUrl }));
   }
@@ -9350,13 +9385,12 @@ function abrirSelector(campo, coll, id){
       </div>
     </div>`;
   host.onclick = e => {
-    if(e.target.hasAttribute("data-close") || e.target.closest("button[data-close]")){ host.innerHTML = ""; return; }
+    if(e.target.hasAttribute("data-close") || e.target.closest("button[data-close]")){ cerrar(); return; }
     const oir = e.target.closest("[data-oir]");
     if(oir){
-      const el = $("#selAudio") || Object.assign(document.createElement("audio"), {id:"selAudio"});
-      if(!el.isConnected) host.appendChild(el);
-      if(el.dataset.src === oir.dataset.oir && !el.paused){ el.pause(); return; }
-      el.src = el.dataset.src = oir.dataset.oir; el.play().catch(() => toast("No se pudo reproducir la muestra.", "alert"));
+      if(muestra.dataset.src === oir.dataset.oir && !muestra.paused){ muestra.pause(); return; }
+      muestra.src = muestra.dataset.src = oir.dataset.oir;
+      muestra.play().catch(() => toast("No se pudo reproducir la muestra.", "alert"));
       return;
     }
     if(e.target.closest("[data-mas]")){ e.target.closest("[data-mas]").textContent = "Cargando…"; cargar(ultimaQ, true); return; }
@@ -9364,21 +9398,31 @@ function abrirSelector(campo, coll, id){
     if(pick){
       const it = find(coll, id); if(!it) return;
       it[campo] = {...resultados[Number(pick.dataset.pick)].guardar, ...(campo === "musicaIg" ? VOL_DEF : {})};
-      touch(); host.innerHTML = ""; render();
+      touch(); cerrar(); render();
       toast(`${cfg.titulo}: ${it[campo].title || it[campo].name}`, "check");
     }
   };
   let resultados = [], todos = [], cursor = "", ultimaQ = "";
+  // la muestra se apaga al cerrar: un <audio> fuera de la página sigue sonando
+  const muestra = new Audio();
+  const marcarSonando = () => $$("#selLista [data-oir]").forEach(b => {
+    const suena = b.dataset.oir === muestra.dataset.src && !muestra.paused;
+    b.classList.toggle("sonando", suena);
+    b.innerHTML = `<svg><use href="#${suena ? "i-pause" : "i-play"}"/></svg>`;
+  });
+  muestra.onplay = muestra.onpause = muestra.onended = marcarSonando;
+  const cerrar = () => { muestra.pause(); muestra.removeAttribute("src"); host.onclick = null; host.innerHTML = ""; };
   const pintar = (lista, titulo = "") => {
     resultados = lista;
     $("#selLista").innerHTML = (titulo && lista.length ? `<p class="sel-msg">${titulo}</p>` : "") + (lista.length ? lista.map((r, i) => `
       <div class="sel-item">
-        <span class="sel-img">${r.img ? `<img src="${esc(r.img)}" alt="">` : `<svg><use href="#${campo === "ubicacion" ? "i-pin" : "i-play"}"/></svg>`}</span>
-        <span class="sel-txt"><b>${esc(r.titulo || "")}</b><small>${esc(r.sub || "")}</small></span>
-        ${r.audio ? `<button type="button" class="btn btn-ghost btn-sm icon-only" data-oir="${esc(r.audio)}" title="Escuchar"><svg><use href="#i-play"/></svg></button>` : ""}
+        <span class="sel-img">${r.img ? `<img src="${esc(r.img)}" alt="">` : `<svg><use href="#${campo === "ubicacion" ? "i-pin" : "i-reel"}"/></svg>`}</span>
+        <span class="sel-txt"><b>${esc(r.titulo || "")}</b><small>${esc(r.sub || "")}${campo !== "ubicacion" && !r.audio ? " · sin muestra" : ""}</small></span>
+        ${r.audio ? `<button type="button" class="btn btn-ghost btn-sm icon-only sel-oir" data-oir="${esc(r.audio)}" title="Escuchar"><svg><use href="#i-play"/></svg></button>` : ""}
         <button type="button" class="btn btn-gold btn-sm" data-pick="${i}">Elegir</button>
       </div>`).join("") : `<p class="sel-msg">${ultimaQ || !cfg.sugerir ? "Sin resultados." : "Instagram no mandó sugerencias. Escribe una canción o un artista y presiona Enter."}</p>`)
       + (cursor ? `<button type="button" class="btn btn-ghost btn-sm sel-mas" data-mas>Ver más</button>` : "");
+    marcarSonando();
   };
   const titulo = () => cfg.sugerir && !ultimaQ ? "Sugerencias de Instagram" : "";
   const cargar = async (q, mas = false) => {
@@ -9406,6 +9450,130 @@ function abrirSelector(campo, coll, id){
     q.oninput = () => { const f = q.value.trim().toLowerCase(); pintar(todos.filter(r => `${r.titulo} ${r.sub}`.toLowerCase().includes(f))); };
     cargar("");
   }
+}
+
+/* ---------- El pedazo de la canción ----------
+   Como en Instagram: se escucha la canción y se corre una ventana sobre ella para elegir
+   desde dónde y cuánto suena. Se guarda en la canción como tramo {inicioMs, finMs}. */
+const TRAMO_LARGOS = [5, 10, 15, 30, 60, 90];
+const mmss = ms => { const t = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
+function tramoHTML(coll, it, campo){
+  const t = it[campo] && it[campo].tramo;
+  return `<div class="redes-tramo">
+    <button type="button" class="btn btn-ghost btn-sm" data-tramo="${campo}" data-coll="${coll}" data-id="${it.id}">
+      <svg><use href="#i-play"/></svg>${t ? `Pedazo: ${mmss(t.inicioMs)} – ${mmss(t.finMs)}` : "Escuchar y elegir el pedazo"}</button>
+    ${t && campo === "musicaIg" ? `<small>guía: Instagram no lo recibe al programar</small>` : ""}
+  </div>`;
+}
+/* Los enlaces de muestra de Instagram caducan a los días: si el guardado ya no suena,
+   se busca la canción otra vez por su título y se toma el enlace nuevo. */
+async function muestraNueva(m){
+  const res = await llamarMetricool({accion:"musica-ig", blogId: brandById(activeBrandId).metricoolBlogId, q: m.title || ""});
+  const d = res.data || {};
+  const igual = [...(d.music || []), ...(d.originalSound || [])].find(a => a.audioId === m.audioId && a.downloadUrl);
+  return igual ? igual.downloadUrl : "";
+}
+function abrirTramo(campo, coll, id){
+  const it = find(coll, id);
+  const m = it && it[campo]; if(!m) return;
+  const host = $("#modalHost");
+  const largoDef = coll === "stories" ? 15 : 30;
+  let inicio = m.tramo ? m.tramo.inicioMs / 1000 : 0;
+  let largo = m.tramo ? Math.round((m.tramo.finMs - m.tramo.inicioMs) / 1000) : largoDef;
+  let dur = (m.durationMs || 0) / 1000;
+  const audio = new Audio();
+  host.innerHTML = `
+    <div class="modal-bg" data-close>
+      <div class="modal sel-modal tramo-modal" role="dialog" aria-modal="true">
+        <h3>Elige el pedazo</h3>
+        <p class="sel-msg"><b>${esc(m.title || "")}</b> · ${esc(m.displayArtist || m.author || "")}</p>
+        <div class="tramo-largos">${TRAMO_LARGOS.map(n => `<button type="button" class="seg-btn" data-largo="${n}">${n} s</button>`).join("")}</div>
+        <div class="tramo-pista" id="trPista"><div class="tramo-ventana" id="trVentana"></div><div class="tramo-cabezal" id="trCabezal"></div></div>
+        <div class="tramo-tiempos"><span id="trDesde"></span><span id="trTotal"></span></div>
+        <p class="sel-msg" id="trMsg">Cargando la canción…</p>
+        <div class="row">
+          <button type="button" class="btn btn-ghost" id="trOir" disabled><svg><use href="#i-play"/></svg> Escuchar el pedazo</button>
+          ${m.tramo ? `<button type="button" class="btn btn-ghost" id="trQuitar">Quitar el pedazo</button>` : ""}
+          <span style="flex:1"></span>
+          <button type="button" class="btn btn-ghost" data-close>Cancelar</button>
+          <button type="button" class="btn btn-gold" id="trGuardar" disabled>Usar este pedazo</button>
+        </div>
+      </div>
+    </div>`;
+  const cerrar = () => { audio.pause(); audio.removeAttribute("src"); host.onclick = null; host.innerHTML = ""; };
+  const pintar = () => {
+    if(dur) largo = Math.min(largo, Math.max(1, Math.floor(dur)));
+    inicio = Math.min(Math.max(0, inicio), Math.max(0, dur - largo));
+    const v = $("#trVentana"); if(!v) return;
+    v.style.left = dur ? `${inicio / dur * 100}%` : "0";
+    v.style.width = dur ? `${Math.min(100, largo / dur * 100)}%` : "100%";
+    $("#trDesde").textContent = `Desde ${mmss(inicio * 1000)} hasta ${mmss((inicio + largo) * 1000)}`;
+    $("#trTotal").textContent = dur ? `Canción: ${mmss(dur * 1000)}` : "";
+    $$(".tramo-largos [data-largo]").forEach(b => {
+      b.classList.toggle("active", Number(b.dataset.largo) === largo);
+      b.disabled = dur > 0 && Number(b.dataset.largo) > dur;
+    });
+  };
+  const cabezal = () => {
+    const c = $("#trCabezal"); if(!c) return;
+    c.style.display = audio.paused ? "none" : "block";
+    if(dur) c.style.left = `${audio.currentTime / dur * 100}%`;
+    if(!audio.paused && audio.currentTime >= inicio + largo) audio.pause();
+    const b = $("#trOir");
+    if(b) b.innerHTML = `<svg><use href="#${audio.paused ? "i-play" : "i-pause"}"/></svg> ${audio.paused ? "Escuchar el pedazo" : "Pausar"}`;
+  };
+  audio.ontimeupdate = audio.onplay = audio.onpause = cabezal;
+  audio.onloadedmetadata = () => {
+    if(isFinite(audio.duration) && audio.duration > 0) dur = audio.duration;
+    $("#trMsg").textContent = "Arrastra la franja dorada para elegir desde dónde suena.";
+    $("#trOir").disabled = false; $("#trGuardar").disabled = false; pintar();
+  };
+  let reintentado = false;
+  audio.onerror = async () => {
+    if(campo === "musicaIg" && !reintentado){
+      reintentado = true;
+      try{ const u = await muestraNueva(m); if(u){ m.downloadUrl = u; audio.src = u; return; } }catch(e){ console.warn("No se pudo renovar la muestra", e); }
+    }
+    const msg = $("#trMsg");
+    if(msg) msg.textContent = "Metricool no trae una muestra de esta canción, así que no se puede escuchar aquí. Igual puedes anotar el pedazo con la franja.";
+    if($("#trGuardar")) $("#trGuardar").disabled = !dur;
+  };
+  const src = campo === "musicaIg" ? m.downloadUrl : m.previewUrl;
+  if(src) audio.src = src; else audio.onerror();
+  pintar();
+
+  // arrastrar la franja: el centro de la ventana sigue al dedo o al mouse
+  const pista = $("#trPista");
+  const mover = e => {
+    if(!dur) return;
+    const r = pista.getBoundingClientRect();
+    inicio = ((e.clientX - r.left) / r.width) * dur - largo / 2;
+    pintar();
+  };
+  pista.onpointerdown = e => { pista.setPointerCapture(e.pointerId); mover(e); };
+  pista.onpointermove = e => { if(pista.hasPointerCapture(e.pointerId)) mover(e); };
+  pista.onpointerup = () => { if(!audio.paused){ audio.currentTime = inicio; } };
+
+  host.onclick = e => {
+    if(e.target.hasAttribute("data-close") || e.target.closest("button[data-close]")){ cerrar(); return; }
+    const l = e.target.closest("[data-largo]");
+    if(l){ largo = Number(l.dataset.largo); pintar(); return; }
+    if(e.target.closest("#trOir")){
+      if(!audio.paused){ audio.pause(); return; }
+      audio.currentTime = inicio; audio.play().catch(() => toast("No se pudo reproducir la canción.", "alert"));
+      return;
+    }
+    if(e.target.closest("#trQuitar")){
+      if(!guard()) return;
+      delete m.tramo; touch(); cerrar(); render(); toast("Pedazo quitado", "check"); return;
+    }
+    if(e.target.closest("#trGuardar")){
+      if(!guard()) return;
+      m.tramo = {inicioMs: Math.round(inicio * 1000), finMs: Math.round((inicio + largo) * 1000)};
+      touch(); cerrar(); render();
+      toast(`Pedazo: ${mmss(m.tramo.inicioMs)} – ${mmss(m.tramo.finMs)}`, "check");
+    }
+  };
 }
 
 /* ---------- FEED PREVIEW (tiempo real) ---------- */
@@ -10957,6 +11125,8 @@ document.addEventListener("click", async e => {
   if(t.matches("[data-detalle-cerrar]") || t.closest("button[data-detalle-cerrar]")){ cerrarDetalle(); return; }
   const dnav = t.closest("[data-detalle-nav]");
   if(dnav){ moverDetalle(Number(dnav.dataset.detalleNav)); return; }
+  const tramo = t.closest("[data-tramo]");
+  if(tramo){ abrirTramo(tramo.dataset.tramo, tramo.dataset.coll, tramo.dataset.id); return; }
   const elegir = t.closest("[data-elegir]");
   if(elegir){ abrirSelector(elegir.dataset.elegir, elegir.dataset.coll, elegir.dataset.id); return; }
   const quitarSel = t.closest("[data-quitar-sel]");
