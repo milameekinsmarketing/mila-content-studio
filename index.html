@@ -9420,10 +9420,10 @@ document.addEventListener("input", e => {
   touch();
   musicaCambiada(r.dataset.coll, r.dataset.id, "musicaIg");
 });
-/* Música cambiada en algo ya programado: se vuelve a mandar a Metricool con la misma
-   fecha y redes (enviarAMetricool crea la nueva y quita la vieja). Solo cuando esa
-   música de verdad le llega a Metricool: la de Instagram en reels, la de TikTok si la
-   pieza va a TikTok. Se espera un momento para juntar varios cambios seguidos (mover
+/* Música o ubicación cambiada en algo ya programado: se vuelve a mandar a Metricool con
+   la misma fecha y redes (enviarAMetricool crea la nueva y quita la vieja). Solo cuando
+   eso de verdad le llega a Metricool: la música de Instagram en reels, la de TikTok si
+   la pieza va a TikTok, y la ubicación en todo menos las historias. Se espera un momento para juntar varios cambios seguidos (mover
    el volumen, elegir canción y luego el pedazo) en un solo envío. */
 const reenvioMusica = new Map();
 function musicaCambiada(coll, id, campo){
@@ -9431,7 +9431,8 @@ function musicaCambiada(coll, id, campo){
   const p = it && it.programado;
   if(!p || !p.fecha || it.published || !metricoolEnabled() || Date.parse(p.fecha) <= Date.now()) return;
   const llega = campo === "musicaIg" ? MUSICA_IG_PROGRAMABLE(coll)
-              : campo === "musicaTiktok" ? LLEVA_MUSICA(coll) && (p.redes || []).includes("tiktok") : false;
+              : campo === "musicaTiktok" ? LLEVA_MUSICA(coll) && (p.redes || []).includes("tiktok")
+              : campo === "ubicacion" ? coll !== "stories" : false;
   if(!llega) return;
   clearTimeout(reenvioMusica.get(id));
   reenvioMusica.set(id, setTimeout(async () => {
@@ -9440,9 +9441,9 @@ function musicaCambiada(coll, id, campo){
     if(!q || !q.fecha || ahora.published) return;
     try{
       await enviarAMetricool(coll, id, {fechaSolo:q.fechaSolo, horaSolo:q.horaSolo, redes:q.redes || [], borrador:!!q.borrador, auto:!!q.auto});
-      toast(`Actualizada en Metricool con la música: «${ahora.title || ahora.idea || "pieza"}»`, "check");
+      toast(`Actualizada en Metricool: «${ahora.title || ahora.idea || "pieza"}»`, "check");
     }catch(e){
-      toast(`La música quedó en la app, pero no se pudo actualizar en Metricool: ${e.message}. Vuelve a programarla.`, "alert", true);
+      toast(`El cambio quedó en la app, pero no se pudo actualizar en Metricool: ${e.message}. Vuelve a programarla.`, "alert", true);
     }
   }, 2500));
 }
