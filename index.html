@@ -9375,10 +9375,11 @@ document.addEventListener("input", e => {
 });
 /* Música en reels, historias, posts y carruseles. Las historias no llevan ubicación:
    Instagram no deja ponerle el sticker de lugar a una historia programada desde fuera
-   de su app. A Instagram la música programada solo le llega en reels e historias; en
-   posts y carruseles queda como guía para ponerla a mano. */
+   de su app. A Instagram la música programada solo le llega en reels: en historias,
+   posts y carruseles Metricool la rechaza («audioConfiguration is only supported for
+   Instagram REEL»), así que ahí queda como guía para ponerla a mano. */
 const LLEVA_MUSICA = coll => ["reels", "stories", "posts", "carousels"].includes(coll);
-const MUSICA_IG_PROGRAMABLE = coll => coll === "reels" || coll === "stories";
+const MUSICA_IG_PROGRAMABLE = coll => coll === "reels";
 /* Lo que se le manda a Metricool: solo los campos que conoce. El tramo y el enlace de
    la muestra son de la app. Instagram no recibe el tramo (su API no tiene inicio ni
    fin); TikTok sí, en startMillis y endMillis. */
@@ -9411,6 +9412,7 @@ function paraRedesHTML(coll, it){
       <summary><span class="redes-sum-ico">♪</span><span class="redes-sum-txt ${elegidas.length ? "" : "vacio"}">${esc(elegidas.join(" · ") || "Agregar música")}</span><svg class="chev"><use href="#i-chev"/></svg></summary>
       ${seleccionHTML(coll, it, "musicaIg", "Instagram", "Elegir canción…")}
       ${seleccionHTML(coll, it, "musicaTiktok", "TikTok", "Elegir de las tendencias…")}
+      ${it.musicaIg ? `<small class="redes-nota">Instagram no acepta música programada en historias: esta canción queda como guía para ponerla a mano.</small>` : ""}
     </details>`;
   }
   return `<div class="para-redes">
@@ -9420,7 +9422,7 @@ function paraRedesHTML(coll, it){
     ${historia ? "" : seleccionHTML(coll, it, "ubicacion", "Ubicación", "Buscar lugar…")}
     <small class="redes-nota">${MUSICA_IG_PROGRAMABLE(coll) || !LLEVA_MUSICA(coll)
       ? `Se mandan con la publicación al programarla en Metricool${coll === "reels" ? ", junto con la portada" : ""}. El pedazo de la canción le llega a TikTok; en Instagram queda como guía.`
-      : "Instagram no acepta música programada en posts ni carruseles: la canción y su pedazo quedan como guía para ponerla a mano. La ubicación sí se manda."}</small>
+      : `Instagram no acepta música programada en ${historia ? "historias" : "posts ni carruseles"}: la canción y su pedazo quedan como guía para ponerla a mano.${historia ? " A TikTok sí le llega." : " La ubicación sí se manda."}`}</small>
   </div>`;
 }
 

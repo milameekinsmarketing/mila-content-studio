@@ -262,8 +262,8 @@ Deno.serve(async (req) => {
     };
     if (tipoInstagram && destinos.includes("instagram")) {
       const ig: Record<string, unknown> = { type: tipoInstagram };
-      // la música de Instagram va en reels e historias
-      if (audioIg?.audioId && (tipoInstagram === "REEL" || tipoInstagram === "STORY")) {
+      // la música de Instagram solo va en reels: Metricool la rechaza en historias
+      if (audioIg?.audioId && tipoInstagram === "REEL") {
         ig.audioConfiguration = audioIg;
         ig.audioName = audioIg.title;
       }
