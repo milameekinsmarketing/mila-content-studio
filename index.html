@@ -9373,7 +9373,34 @@ document.addEventListener("input", e => {
   it.musicaIg[r.dataset.vol] = Number(r.value);
   r.nextElementSibling.textContent = r.value + "%";
   touch();
+  musicaCambiada(r.dataset.coll, r.dataset.id, "musicaIg");
 });
+/* Música cambiada en algo ya programado: se vuelve a mandar a Metricool con la misma
+   fecha y redes (enviarAMetricool crea la nueva y quita la vieja). Solo cuando esa
+   música de verdad le llega a Metricool: la de Instagram en reels, la de TikTok si la
+   pieza va a TikTok. Se espera un momento para juntar varios cambios seguidos (mover
+   el volumen, elegir canción y luego el pedazo) en un solo envío. */
+const reenvioMusica = new Map();
+function musicaCambiada(coll, id, campo){
+  const it = find(coll, id);
+  const p = it && it.programado;
+  if(!p || !p.fecha || it.published || !metricoolEnabled() || Date.parse(p.fecha) <= Date.now()) return;
+  const llega = campo === "musicaIg" ? MUSICA_IG_PROGRAMABLE(coll)
+              : campo === "musicaTiktok" ? LLEVA_MUSICA(coll) && (p.redes || []).includes("tiktok") : false;
+  if(!llega) return;
+  clearTimeout(reenvioMusica.get(id));
+  reenvioMusica.set(id, setTimeout(async () => {
+    reenvioMusica.delete(id);
+    const ahora = find(coll, id), q = ahora && ahora.programado;
+    if(!q || !q.fecha || ahora.published) return;
+    try{
+      await enviarAMetricool(coll, id, {fechaSolo:q.fechaSolo, horaSolo:q.horaSolo, redes:q.redes || [], borrador:!!q.borrador, auto:!!q.auto});
+      toast(`Actualizada en Metricool con la música: «${ahora.title || ahora.idea || "pieza"}»`, "check");
+    }catch(e){
+      toast(`La música quedó en la app, pero no se pudo actualizar en Metricool: ${e.message}. Vuelve a programarla.`, "alert", true);
+    }
+  }, 2500));
+}
 /* Música en reels, historias, posts y carruseles. Las historias no llevan ubicación:
    Instagram no deja ponerle el sticker de lugar a una historia programada desde fuera
    de su app. A Instagram la música programada solo le llega en reels: en historias,
@@ -9488,6 +9515,7 @@ function abrirSelector(campo, coll, id){
       it[campo] = {...resultados[Number(pick.dataset.pick)].guardar, ...(campo === "musicaIg" ? VOL_DEF : {})};
       touch(); cerrar(); render();
       toast(`${cfg.titulo}: ${it[campo].title || it[campo].name}`, "check");
+      musicaCambiada(coll, id, campo);
     }
   };
   let resultados = [], todos = [], cursor = "", ultimaQ = "";
@@ -9652,13 +9680,14 @@ function abrirTramo(campo, coll, id){
     }
     if(e.target.closest("#trQuitar")){
       if(!guard()) return;
-      delete m.tramo; touch(); cerrar(); render(); toast("Pedazo quitado", "check"); return;
+      delete m.tramo; touch(); cerrar(); render(); toast("Pedazo quitado", "check"); musicaCambiada(coll, id, campo); return;
     }
     if(e.target.closest("#trGuardar")){
       if(!guard()) return;
       m.tramo = {inicioMs: Math.round(inicio * 1000), finMs: Math.round((inicio + largo) * 1000)};
       touch(); cerrar(); render();
       toast(`Pedazo: ${mmss(m.tramo.inicioMs)} – ${mmss(m.tramo.finMs)}`, "check");
+      musicaCambiada(coll, id, campo);
     }
   };
 }
@@ -11229,7 +11258,7 @@ document.addEventListener("click", async e => {
   if(quitarSel){
     if(!guard()) return;
     const it = find(quitarSel.dataset.coll, quitarSel.dataset.id);
-    if(it){ it[quitarSel.dataset.quitarSel] = null; touch(); render(); }
+    if(it){ it[quitarSel.dataset.quitarSel] = null; touch(); render(); musicaCambiada(quitarSel.dataset.coll, quitarSel.dataset.id, quitarSel.dataset.quitarSel); }
     return;
   }
 
