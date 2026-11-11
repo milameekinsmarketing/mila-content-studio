@@ -360,6 +360,8 @@ button.mover-op:hover{border-color:var(--gold);background:var(--gold-pale)}
 .media-tools{display:flex;gap:8px;margin-top:12px}
 .media-tools .btn{flex:1;justify-content:center}
 .media-tools .btn.icon-only{flex:0 0 auto;padding:8px 11px}
+.media-tools .story-borrar{color:var(--danger)}
+.media-tools .story-borrar:hover{border-color:#F0C9C9;background:#FBECEC}
 .sec-title .link{text-decoration:none}
 
 /* Stars — receptividad 1..10 */
@@ -1246,6 +1248,7 @@ body.needs-auth .app{display:none}
   <symbol id="i-build" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 20h18M5 20V8l6-4 6 4v12"/><path d="M9 12h1.5M13.5 12H15M9 16h1.5M13.5 16H15"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l6 3.5-6 3.5z"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M10 8.5v7M14 8.5v7"/></symbol>
+  <symbol id="i-img-swap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="13" height="11" rx="2"/><circle cx="7.5" cy="9" r="1.3"/><path d="M3 14l3.5-3 3 2.5 2.5-2 4 3.5"/><path d="M19 8v9a2 2 0 0 1-2 2H8"/><path d="M10.5 16.5L8 19l2.5 2.5"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
   <symbol id="i-grip" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="7" r="1.6"/><circle cx="15" cy="7" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="17" r="1.6"/><circle cx="15" cy="17" r="1.6"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 20h16"/></symbol>
@@ -9209,16 +9212,14 @@ function storyCard(s, i){
       <span class="num">#${i+1}</span>
       <span class="story-top-acciones">
         ${moverMesBtnHTML("stories", s.id, true)}
-        <button class="icon-btn lock-viewer lock-editor" style="width:30px;height:30px;color:var(--danger)" data-del data-coll="stories" data-id="${s.id}" title="Eliminar">
-          <svg width="15" height="15"><use href="#i-trash"/></svg></button>
       </span>
     </div>
     ${badge ? `<div class="story-top" style="padding-top:6px">${badge}</div>` : ""}
     <div class="story-media">
       ${mediaBox({coll:"stories", id:s.id, field:"media", src:s.media, ratio:"ratio-916", title:"Subir media", hint:"Foto o clip 9:16"})}
       <div class="media-tools lock-viewer" style="margin-top:8px">
-        <button class="btn btn-ghost btn-sm icon-only" data-upload data-coll="stories" data-id="${s.id}" data-field="media" title="${s.media?"Reemplazar":"Subir"} media"><svg><use href="#i-upload"/></svg></button>
-        <button class="btn btn-ghost btn-sm icon-only" data-clear data-coll="stories" data-id="${s.id}" data-field="media" title="Quitar media"><svg><use href="#i-trash"/></svg></button>
+        <button class="btn btn-ghost btn-sm" data-upload data-coll="stories" data-id="${s.id}" data-field="media" title="${s.media ? "Cambiar la foto o el clip por otro" : "Subir la foto o el clip"}"><svg><use href="#${s.media ? "i-img-swap" : "i-upload"}"/></svg>${s.media ? "Reemplazar foto" : "Subir foto"}</button>
+        <button class="btn btn-ghost btn-sm icon-only story-borrar" data-del-historia="${s.id}" title="Eliminar esta historia"><svg><use href="#i-trash"/></svg></button>
       </div>
     </div>
     <div class="story-body">
@@ -11136,12 +11137,20 @@ async function bulkUploadStories(files, monthId, fillIds){
 
 function deleteItem(coll, id){
   const it = find(coll, id); if(!it) return;
-  confirmDialog("¿Eliminar esta pieza?", `"${it.title || it.name}" se quitará del plan y de cualquier espacio del Feed Preview.`, () => {
+  const nombre = it.title || it.name || it.idea || "Esta pieza";
+  const p = it.programado;
+  const enMetricool = p && p.id && !it.published;
+  confirmDialog("¿Eliminar esta pieza?", `"${nombre}" se quitará del plan y de cualquier espacio del Feed Preview.${enMetricool ? " También se quitará de la programación de Metricool." : ""}`, () => {
+    // lo programado que todavía no salió se quita de Metricool, para que no se publique algo borrado
+    if(enMetricool && metricoolEnabled()){
+      llamarMetricool({accion:"borrar", blogId: brandById(activeBrandId).metricoolBlogId, id: p.id})
+        .catch(e => toast(`Se eliminó de la app, pero no se pudo quitar de Metricool: ${e.message}. Bórrala a mano en el planificador.`, "alert", true));
+    }
     S[coll] = S[coll].filter(x => x.id !== id);
     reindex(coll);
     // libera el espacio del feed que esta pieza pudiera estar ocupando, en cualquier mes
     S.feedMonths.forEach(m => m.slots.forEach((sl, i) => { if(sl && sl.coll === coll && sl.id === id) m.slots[i] = null; }));
-    logActivity("alert", `<b>Elemento eliminado:</b> ${esc(it.title || it.name)}.`);
+    logActivity("alert", `<b>Elemento eliminado:</b> ${esc(nombre)}.`);
     touch(); render(); toast("Elemento eliminado", "trash");
   });
 }
@@ -11334,6 +11343,12 @@ document.addEventListener("click", async e => {
   if(col){ const it = find(col.dataset.coll, col.dataset.id); if(it){ it.collapsed = !it.collapsed; touch(); render(); } return; }
 
   // eliminar
+  // el basurero de la historia borra la tarjeta entera (Admin y Editor), con confirmación
+  const delHist = t.closest("[data-del-historia]");
+  if(delHist){
+    if(!guard()) return;
+    deleteItem("stories", delHist.dataset.delHistoria); return;
+  }
   const del = t.closest("[data-del]");
   if(del){
     if(!canAdmin()){ toast("Solo el rol Admin puede eliminar.", "alert", true); return; }
