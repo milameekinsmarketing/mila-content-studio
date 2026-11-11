@@ -730,6 +730,9 @@ html.detalle-abierto{overflow:hidden}
   background:repeating-linear-gradient(90deg,var(--line) 0 2px,transparent 2px 6px) center/100% 60% no-repeat,var(--cream-2)}
 .tramo-ventana{position:absolute;top:0;bottom:0;border:2px solid var(--gold-deep);border-radius:10px;background:rgba(184,146,82,.22);box-sizing:border-box}
 .tramo-cabezal{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--navy);display:none}
+.tramo-oir{display:flex;justify-content:center;margin:4px 0 10px}
+.tramo-acciones{flex-wrap:wrap}
+.tramo-oir .btn svg{width:16px;height:16px}
 .tramo-tiempos{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:6px}
 .redes-vol b{font-weight:500;color:var(--navy);min-width:32px}
 @media (max-width:700px){.redes-vol{padding-left:4px}}
@@ -9491,10 +9494,9 @@ function abrirTramo(campo, coll, id){
         <div class="tramo-pista" id="trPista"><div class="tramo-ventana" id="trVentana"></div><div class="tramo-cabezal" id="trCabezal"></div></div>
         <div class="tramo-tiempos"><span id="trDesde"></span><span id="trTotal"></span></div>
         <p class="sel-msg" id="trMsg">Cargando la canción…</p>
-        <div class="row">
-          <button type="button" class="btn btn-ghost" id="trOir" disabled><svg><use href="#i-play"/></svg> Escuchar el pedazo</button>
+        <div class="tramo-oir"><button type="button" class="btn btn-ghost" id="trOir" disabled><svg><use href="#i-play"/></svg> Escuchar el pedazo</button></div>
+        <div class="row tramo-acciones">
           ${m.tramo ? `<button type="button" class="btn btn-ghost" id="trQuitar">Quitar el pedazo</button>` : ""}
-          <span style="flex:1"></span>
           <button type="button" class="btn btn-ghost" data-close>Cancelar</button>
           <button type="button" class="btn btn-gold" id="trGuardar" disabled>Usar este pedazo</button>
         </div>
