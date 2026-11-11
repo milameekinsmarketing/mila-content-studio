@@ -6432,14 +6432,25 @@ let cloudPending = false, cloudRetryTimer = null, cloudFailWarned = false;
    El guardado sale solo si la nube sigue en la versión que se combinó; si alguien guardó
    justo en medio, se vuelve a combinar con eso. */
 let cloudBase = null, cloudStamp = null, cloudChoques = 0;
-const mismoValor = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const esObjeto = v => v !== null && typeof v === "object" && !Array.isArray(v);
+/* Se compara el contenido, no la forma: la nube devuelve las claves en otro orden (JSONB
+   las reordena) y un campo ausente equivale a uno vacío. Sin esto, lo que no cambió
+   parecía cambiado y la combinación se quedaba con lo de esta pestaña. */
+const canonico = v => v === undefined ? "null"
+  : JSON.stringify(v, (k, x) => esObjeto(x) ? Object.fromEntries(Object.keys(x).sort().map(c => [c, x[c]])) : x);
+const mismoValor = (a, b) => canonico(a) === canonico(b);
+const vacio = v => v == null || v === "" || v === false
+  || (Array.isArray(v) && !v.length) || (esObjeto(v) && !Object.keys(v).length);
 const conIds = v => Array.isArray(v) && v.every(x => esObjeto(x) && typeof x.id === "string");
 
 function fusionar3(base, mio, otro){
   if(mismoValor(mio, otro)) return mio;
   if(mismoValor(mio, base)) return otro;
   if(mismoValor(otro, base)) return mio;
+  // un campo que la nube no tenía y que aquí solo trae su valor por defecto (lo agrega
+  // la app al cargar: programado vacío, published:false…) no es una edición de aquí
+  if(base === undefined && vacio(mio)) return otro;
+  if(base === undefined && vacio(otro)) return mio;
   if(conIds(mio) && conIds(otro) && (mio.length || otro.length)){
     return fusionarLista(conIds(base) ? base : [], mio, otro);
   }
