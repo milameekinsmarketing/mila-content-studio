@@ -6597,6 +6597,10 @@ async function syncToCloud(){
     if(error && conEscritura && /escritura/i.test(error.message || "")){
       conEscritura = false; cloudPending = true; return;
     }
+    // la base de datos ya exige la marca (se agregó la columna con su regla): se vuelve a usar
+    if(error && !conEscritura && /versi[oó]n vieja/i.test(error.message || "")){
+      conEscritura = true; cloudPending = true; return;
+    }
     if(error) throw error;
     if(!guardadas){
       // otra pestaña guardó entre la lectura y la escritura: se repite combinando con eso.
