@@ -6482,16 +6482,27 @@ function fusionar3(base, mio, otro){
   return mio;
 }
 
+/* Ids eliminados a propósito en cualquier pestaña (ver marcarBorrado). Se juntan antes
+   de cada combinación: una pieza borrada no vuelve aunque la otra pestaña la tenga un
+   poco distinta (otro orden, un campo por defecto). */
+let borradosEnFusion = new Set();
+function idsBorrados(datos){
+  const out = [];
+  for(const b of Object.values((datos && datos.brands) || {}))
+    for(const t of (b && b.borrados) || []) if(t && t.id) out.push(t.id.replace(/^b:/, ""));
+  return out;
+}
 function fusionarLista(base, mio, otro){
   const porId = arr => new Map(arr.map(x => [x.id, x]));
   const B = porId(base), M = porId(mio), O = porId(otro);
   const out = [];
   for(const x of mio){
+    if(borradosEnFusion.has(x.id)) continue;
     if(O.has(x.id)) out.push(fusionar3(B.get(x.id), x, O.get(x.id)));
     else if(!B.has(x.id) || !mismoValor(x, B.get(x.id))) out.push(x); // nueva aquí, o la otra la borró pero aquí se editó
   }
   otro.forEach((x, i) => {
-    if(M.has(x.id)) return;
+    if(M.has(x.id) || borradosEnFusion.has(x.id)) return;
     if(B.has(x.id) && mismoValor(x, B.get(x.id))) return;          // se borró aquí y allá nadie la tocó
     let pos = 0;                                                     // va detrás de la que la precede allá
     for(let j = i - 1; j >= 0; j--){
@@ -6540,6 +6551,7 @@ function avisarVersionVieja(){
   updateSaveState();
 }
 
+let conEscritura = true;
 async function syncToCloud(){
   if(!sbClient || !currentUser || appDesactualizada) return;
   if(cloudSaveInFlight){ cloudPending = true; return; }
@@ -6563,12 +6575,16 @@ async function syncToCloud(){
     const mio = structuredClone(packWorkspace());
     let datos = mio;
     if(remoto && remoto.data){
+      borradosEnFusion = new Set([...idsBorrados(mio), ...idsBorrados(remoto.data)]);
       datos = fusionar3(cloudBase || {}, mio, remoto.data);
+      borradosEnFusion = new Set();
       if(!mismoValor(datos, mio)) aplicarCombinado(datos);
     }
     const stamp = new Date().toISOString();
     cloudPushed.add(Date.parse(stamp));
-    const fila2 = { data: datos, updated_at: stamp, updated_by: currentUser.id };
+    // «escritura» cambia en cada guardado: la base de datos rechaza las escrituras que
+    // no la cambian, que son las de pestañas con código de antes de esta regla
+    const fila2 = { data: datos, updated_at: stamp, updated_by: currentUser.id, ...(conEscritura ? {escritura: uid("w")} : {}) };
     let error, guardadas = 1;
     if(fila && cloudChoques < 3){
       const horaLeida = remoto ? remoto.updated_at : fila.updated_at;
@@ -6576,6 +6592,10 @@ async function syncToCloud(){
       error = r.error; guardadas = (r.data || []).length;
     }else{
       ({ error } = await tabla.upsert(Object.assign({ id: WORKSPACE_ID }, fila2)));
+    }
+    // la columna «escritura» todavía no existe en esta base de datos: se guarda sin ella
+    if(error && conEscritura && /escritura/i.test(error.message || "")){
+      conEscritura = false; cloudPending = true; return;
     }
     if(error) throw error;
     if(!guardadas){
@@ -6620,6 +6640,9 @@ function subscribeRealtime(){
       // app abierta en dos pestañas (o dos computadoras) con la misma cuenta, cada una
       // ignoraba lo que guardaba la otra y al guardar la pisaba con su versión vieja.
       if(cloudPushed.has(Date.parse(incoming.updated_at))) return;
+      // un aviso que llega tarde, de un guardado anterior al que esta pestaña ya conoce:
+      // aplicarlo la haría volver a una versión vieja
+      if(cloudStamp && Date.parse(incoming.updated_at) <= Date.parse(cloudStamp)) return;
       // hay ediciones locales sin guardar: no se pisan; el próximo guardado las combina
       if(dirty || cloudSaveInFlight) return;
       cloudBase = structuredClone(incoming.data); cloudStamp = incoming.updated_at;
@@ -11228,6 +11251,11 @@ async function bulkUploadStories(files, monthId, fillIds){
     : `Listo: ${resumen}.`, failed.length ? "alert" : "check", !!failed.length);
 }
 
+/* Deja constancia de un borrado hecho a propósito, para que otra pestaña que todavía
+   tenga la pieza no la devuelva al combinar. Se guardan las últimas 300. */
+function marcarBorrado(id){
+  S.borrados = [...(S.borrados || []).filter(t => t.id !== "b:" + id), {id: "b:" + id, at: now()}].slice(-300);
+}
 function deleteItem(coll, id){
   const it = find(coll, id); if(!it) return;
   const nombre = it.title || it.name || it.idea || "Esta pieza";
@@ -11240,6 +11268,7 @@ function deleteItem(coll, id){
         .catch(e => toast(`Se eliminó de la app, pero no se pudo quitar de Metricool: ${e.message}. Bórrala a mano en el planificador.`, "alert", true));
     }
     S[coll] = S[coll].filter(x => x.id !== id);
+    marcarBorrado(id);
     reindex(coll);
     // libera el espacio del feed que esta pieza pudiera estar ocupando, en cualquier mes
     S.feedMonths.forEach(m => m.slots.forEach((sl, i) => { if(sl && sl.coll === coll && sl.id === id) m.slots[i] = null; }));
@@ -11466,6 +11495,7 @@ document.addEventListener("click", async e => {
     const c = find(coll, delSlide.dataset.car); if(!c) return;
     if(c.slides.length <= 1){ toast("Debe quedar al menos una imagen.", "alert", true); return; }
     c.slides = c.slides.filter(s => s.id !== delSlide.dataset.id);
+    marcarBorrado(delSlide.dataset.id);
     touch(); render(); return;
   }
 
