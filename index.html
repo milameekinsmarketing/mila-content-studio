@@ -803,6 +803,10 @@ html.detalle-abierto{overflow:hidden}
 
 /* Resalte temporal al saltar desde "En Feed · #k" o desde una celda del feed */
 .flash{animation:flashHighlight 1.5s ease}
+/* la pieza a la que se llega desde el Feed Preview o el Dashboard */
+.destacada{position:relative;z-index:1;outline:3px solid var(--gold);outline-offset:4px;border-radius:16px;
+  box-shadow:0 0 0 10px rgba(184,146,82,.18),0 18px 40px rgba(26,35,64,.18);animation:destacadaPulso 1.6s ease 2}
+@keyframes destacadaPulso{50%{outline-offset:8px;box-shadow:0 0 0 16px rgba(184,146,82,.10),0 18px 40px rgba(26,35,64,.18)}}
 @keyframes flashHighlight{0%,100%{box-shadow:var(--shadow-sm)}25%{box-shadow:0 0 0 4px var(--gold),var(--shadow)}}
 
 .status-select{
@@ -9317,7 +9321,7 @@ function tileCardHTML(coll, it, i){
     it.ubicacion ? `<span class="tile-chip" title="${esc(it.ubicacion.name || "")}"><svg><use href="#i-pin"/></svg>Ubicación</span>` : ""
   ].filter(Boolean).join("");
   return `
-  <div class="story-card tile-card ${it.published ? "published-item" : ""}" data-abrir data-coll="${coll}" data-id="${it.id}" title="Abrir ${coll === "reels" ? "el reel" : "el post"}">
+  <div class="story-card tile-card ${it.published ? "published-item" : ""}" data-abrir data-item="${it.id}" data-coll="${coll}" data-id="${it.id}" title="Abrir ${coll === "reels" ? "el reel" : "el post"}">
     <div class="story-top">
       <span class="num">#${i + 1}</span>
       <span class="story-top-acciones">${moverMesBtnHTML(coll, it.id, true)}</span>
@@ -10799,19 +10803,25 @@ function render(){
   updateSaveState();
   if(pendingFocus){
     const el = $(`[data-item="${pendingFocus}"], [data-cell="${pendingFocus}"]`);
+    // la pieza a la que se llegó queda marcada unos segundos, aunque la vista se vuelva
+    // a pintar mientras tanto (un guardado, un cambio de otra pestaña)
+    destacada = { id: pendingFocus, hasta: Date.now() + 8000 };
     pendingFocus = null;
     if(el){
       el.scrollIntoView({behavior:"smooth", block:"center"});
-      el.classList.add("flash");
-      setTimeout(() => el.classList.remove("flash"), 1500);
+      el.classList.add("destacada");
     }else{
       window.scrollTo({top:0});
     }
+    clearTimeout(destacadaTimer);
+    destacadaTimer = setTimeout(() => { destacada = null; $$(".destacada").forEach(x => x.classList.remove("destacada")); }, 8000);
   }else{
-    window.scrollTo({top:0});
+    if(destacada && Date.now() < destacada.hasta) $(`[data-item="${destacada.id}"], [data-cell="${destacada.id}"]`)?.classList.add("destacada");
+    else window.scrollTo({top:0});
   }
 }
 let pendingFocus = null;
+let destacada = null, destacadaTimer = null;
 
 function autosize(t){
   const floor = t.classList.contains("big") ? 260 : 60;
