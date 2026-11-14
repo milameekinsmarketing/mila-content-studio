@@ -269,8 +269,14 @@ Deno.serve(async (req) => {
       }
       cuerpo.instagramData = ig;
     }
-    if (musicaTiktok?.musicId && destinos.includes("tiktok")) {
-      cuerpo.tiktokData = { privacyOption: "PUBLIC_TO_EVERYONE", music: musicaTiktok };
+    // TikTok exige decir quién puede ver el video: sin privacyOption rechaza la
+    // publicación («does not specified privacy options»). Va siempre que la pieza vaya
+    // a TikTok; la música, solo si se eligió.
+    if (destinos.includes("tiktok")) {
+      cuerpo.tiktokData = {
+        privacyOption: "PUBLIC_TO_EVERYONE",
+        ...(musicaTiktok?.musicId ? { music: musicaTiktok } : {}),
+      };
     }
     if (ubicacion?.id) cuerpo.location = ubicacion;
 
