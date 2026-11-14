@@ -136,6 +136,12 @@ cuando el navegador de la clienta se quedó con una versión vieja.
   tenga sesión iniciada.
 - Preferencias por navegador (rol, marca activa) van en sus propias claves y se fuerzan
   después de cada `seed`/`merge`.
+- **Cada guardado lleva una marca nueva en la columna `escritura`.** Una regla de la base
+  de datos (`supabase/sql/escritura-nueva.sql`, ya aplicada) rechaza los guardados que no
+  la cambian: así una pestaña abierta con código viejo no puede pisar lo nuevo. Cualquier
+  código que escriba en `workspace_state` tiene que mandar una `escritura` distinta.
+- Lo eliminado a propósito queda anotado en `S.borrados` (las últimas 300), para que la
+  combinación entre pestañas no lo devuelva.
 
 Si Supabase no responde, la app lo dice y ofrece entrar con la copia local. No se queda
 muerta.
