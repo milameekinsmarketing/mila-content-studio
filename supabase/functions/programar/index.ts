@@ -127,7 +127,7 @@ Deno.serve(async (req) => {
     const {
       accion, id, blogId, texto = "", media = [], videos = [], redes = [],
       fecha, zona = "America/New_York", borrador = false, tipoInstagram, tipoFacebook,
-      q = "", cursor = "", ubicacion, audioIg, musicaTiktok, portada, ids = [], fechas = {}, desde, hasta,
+      q = "", cursor = "", ubicacion, audioIg, musicaTiktok, portada, youtube, ids = [], fechas = {}, desde, hasta,
     } = await req.json();
 
     if (!blogId) return responder({ error: "Falta el blogId de la marca." }, 400);
@@ -278,6 +278,22 @@ Deno.serve(async (req) => {
         ...(musicaTiktok?.musicId ? { music: musicaTiktok } : {}),
       };
     }
+    // YouTube no publica sin título. El copy de la pieza va como descripción del video.
+    // YouTube no acepta < ni > y corta el título en 100 caracteres.
+    if (destinos.includes("youtube")) {
+      const titulo = String(youtube?.title || texto.split("\n")[0] || "Video")
+        .replace(/[<>]/g, "").trim().slice(0, 100);
+      cuerpo.text = String(texto).replace(/[<>]/g, "");
+      cuerpo.youtubeData = {
+        title: titulo,
+        type: youtube?.type || "video",
+        privacy: youtube?.privacy || "public",
+        madeForKids: false,
+        notifySubscribers: true,
+        ...(Array.isArray(youtube?.tags) && youtube.tags.length ? { tags: youtube.tags } : {}),
+        ...(youtube?.category ? { category: youtube.category } : {}),
+      };
+    }
     if (ubicacion?.id) cuerpo.location = ubicacion;
 
     // Portada propia del reel: Metricool la toma como miniatura del video. Si no se
@@ -298,7 +314,7 @@ Deno.serve(async (req) => {
 
     console.log("media enviada →", JSON.stringify(archivos).slice(0, 600));
     console.log("redes enviadas →", JSON.stringify({
-      instagramData: cuerpo.instagramData, tiktokData: cuerpo.tiktokData,
+      instagramData: cuerpo.instagramData, tiktokData: cuerpo.tiktokData, youtubeData: cuerpo.youtubeData,
       location: cuerpo.location, videoThumbnailUrl: cuerpo.videoThumbnailUrl,
     }).slice(0, 800));
     const creada = await metricool("/v2/scheduler/posts", blogId, {
