@@ -32,6 +32,7 @@ Estas son decisiones de la clienta, no preferencias de estilo. Rómpelas y el tr
 devuelve.
 
 1. **Nada de emojis de brillitos** en ningún copy: ✨ 🌟 💫 ⭐ 🪄. Ninguno, en ninguna marca.
+   **Tampoco comillas « »** en los copys: una cita o una frase va sin ellas.
 2. **La palabra "prosperidad" no se usa.** Se dice "servicio".
 3. **No se inventan testimonios, reseñas ni cifras de ventas.** Las piezas de credibilidad
    llevan los datos entre corchetes — `[N] casas`, `[cita textual]`, `[N] días` — y una
