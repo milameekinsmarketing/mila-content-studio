@@ -6894,16 +6894,80 @@ async function llamarMetricool(cuerpo){
   return res;
 }
 
+/* Videos de más de 50 MB (los de YouTube, casi siempre): la función no puede copiarlos
+   a Supabase Storage (plan gratis) y Metricool no lee el enlace de Drive. Se suben al
+   almacenamiento de Metricool por partes de 16 MB: primero la función calcula la huella
+   de cada parte, después Metricool da un enlace para cada una, la función sube cada
+   pedazo bajándolo de Drive, y al final Metricool las junta. Todo pasa entre Drive,
+   la función y Metricool: el navegador solo va pidiendo los pasos.
+   Devuelve el enlace que se le pasa a Metricool como video. Los chicos siguen igual. */
+const VIDEO_LIMITE_STORAGE = 50 * 1024 * 1024;
+const VIDEO_PARTE = 16 * 1024 * 1024;
+async function enParalelo(lista, cuantos, fn){
+  let i = 0;
+  await Promise.all(Array.from({length: Math.min(cuantos, lista.length)}, async () => {
+    while(i < lista.length){ const x = lista[i++]; await fn(x); }
+  }));
+}
+async function conReintentos(fn, veces = 3){
+  for(let n = 1; ; n++){
+    try{ return await fn(); }
+    catch(e){ if(n >= veces) throw e; await new Promise(r => setTimeout(r, 3000 * n)); }
+  }
+}
+async function videoParaMetricool(url){
+  const blogId = brandById(activeBrandId).metricoolBlogId;
+  let info;
+  try{ info = await llamarMetricool({accion:"subida-tamano", blogId, fuente: url}); }
+  catch(e){ console.warn("No se pudo medir el video; se manda el enlace de Drive", e); return url; }
+  const tam = Number(info.tamano) || 0;
+  if(!tam || tam <= VIDEO_LIMITE_STORAGE) return url;
+
+  // aviso fijo con el avance: un video de 8 minutos son unas 25 partes
+  const aviso = document.createElement("div");
+  aviso.className = "toast";
+  aviso.innerHTML = `<svg><use href="#i-upload"/></svg><span></span>`;
+  $("#toasts").appendChild(aviso);
+  const partes = [];
+  for(let i = 0; i < tam; i += VIDEO_PARTE){ const f = Math.min(tam, i + VIDEO_PARTE); partes.push({size: f - i, startByte: i, endByte: f, hash: ""}); }
+  let hechos = 0;
+  const avance = () => { aviso.querySelector("span").textContent =
+    `Subiendo el video a Metricool (${Math.round(tam / 1048576)} MB)… ${Math.round(hechos * 100 / (partes.length * 2))}%`; };
+  avance();
+  try{
+    await enParalelo(partes, 3, async p => {
+      p.hash = (await conReintentos(() => llamarMetricool({accion:"subida-hash", blogId, fuente: url, inicio: p.startByte, fin: p.endByte}))).hash;
+      hechos++; avance();
+    });
+    const tipo = /^video\//.test(info.tipo || "") ? info.tipo : "video/mp4";
+    const ini = (await llamarMetricool({accion:"subida-iniciar", blogId, contentType: tipo, partes})).data;
+    const etags = [];
+    await enParalelo(ini.parts, 3, async p => {
+      const j = await conReintentos(() => llamarMetricool({accion:"subida-parte", blogId, fuente: url,
+        presignedUrl: p.presignedUrl, inicio: p.startByte, fin: p.endByte, hash: partes[p.partNumber - 1].hash}));
+      etags[p.partNumber - 1] = {partNumber: p.partNumber, etag: j.etag};
+      hechos++; avance();
+    });
+    const fin = (await llamarMetricool({accion:"subida-completar", blogId, uploadId: ini.uploadId, key: ini.key, partes: etags})).data;
+    return fin.convertedFileUrl || fin.fileUrl;
+  }catch(e){
+    throw new Error(`no se pudo subir el video a Metricool (${e.message})`);
+  }finally{
+    aviso.remove();
+  }
+}
+
 /* Manda una pieza a Metricool y deja anotado en ella cuándo y dónde quedó. */
 async function enviarAMetricool(coll, id, {fechaSolo, horaSolo, redes, borrador=false, auto=false}){
   const it = find(coll, id); if(!it) throw new Error("la pieza ya no existe");
   const video = PROG_VIDEO[coll] ? progVideoUrl(PROG_VIDEO[coll](it)) : "";
   const anterior = it.programado && it.programado.id;
+  const videoListo = video ? await videoParaMetricool(video) : "";
   const res = await llamarMetricool({
     blogId: brandById(activeBrandId).metricoolBlogId,
     texto: (it.copy || "").trim(),
     media: video ? [] : (PROG_MEDIA[coll](it) || []).filter(Boolean),
-    videos: video ? [video] : [],
+    videos: videoListo ? [videoListo] : [],
     redes: redesDeMarca(redes),
     fecha: `${fechaSolo}T${horaSolo}:00`,
     zona: METRICOOL_TZ,

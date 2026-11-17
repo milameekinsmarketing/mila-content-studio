@@ -148,6 +148,24 @@ Deno.serve(async (req) => {
     //      devuelve un enlace firmado para subir cada una.
     //   2. subida-parte: esta función baja ese pedazo de Drive y lo sube a su enlace.
     //   3. subida-completar: Metricool junta las partes y devuelve el enlace del video.
+    // Antes de subir: el tamaño del video y la huella de cada parte, que la app no
+    // puede calcular sin bajarse el archivo entero.
+    if (accion === "subida-tamano" || accion === "subida-hash") {
+      const origen = new URL(String(fuente ?? ""));
+      if (origen.hostname !== "drive.usercontent.google.com") return responder({ error: "La fuente tiene que ser un archivo de Drive." }, 400);
+      if (accion === "subida-tamano") {
+        const d = await fetch(origen.toString(), { headers: { Range: "bytes=0-0" } });
+        const total = Number((d.headers.get("Content-Range") ?? "").split("/")[1] ?? d.headers.get("Content-Length") ?? 0);
+        await d.body?.cancel();
+        return responder({ ok: true, tamano: total, tipo: d.headers.get("Content-Type") });
+      }
+      const d = await fetch(origen.toString(), { headers: { Range: `bytes=${inicio}-${Number(fin) - 1}` } });
+      if (d.status !== 206 && d.status !== 200) return responder({ error: `Drive respondió ${d.status}` }, 502);
+      const datos = new Uint8Array(await d.arrayBuffer());
+      if (datos.length !== Number(fin) - Number(inicio)) return responder({ error: `Drive mandó ${datos.length} bytes en vez de ${Number(fin) - Number(inicio)}` }, 502);
+      const h = new Uint8Array(await crypto.subtle.digest("SHA-256", datos));
+      return responder({ ok: true, hash: btoa(String.fromCharCode(...h)) });
+    }
     if (accion === "subida-iniciar") {
       if (!Array.isArray(partes) || !partes.length) return responder({ error: "Faltan las partes." }, 400);
       const r = await metricool("/v2/media/s3/upload-transactions", blogId, {
