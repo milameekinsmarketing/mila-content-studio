@@ -127,7 +127,8 @@ Deno.serve(async (req) => {
     const {
       accion, id, blogId, texto = "", media = [], videos = [], redes = [],
       fecha, zona = "America/New_York", borrador = false, tipoInstagram, tipoFacebook,
-      q = "", cursor = "", ubicacion, audioIg, musicaTiktok, portada, youtube, ids = [], fechas = {}, desde, hasta,
+      q = "", cursor = "", ubicacion, audioIg, musicaTiktok, portada, youtube, ids = [],
+      partes = [], contentType = "video/mp4", fuente, presignedUrl, inicio, fin, hash, uploadId, key, fechas = {}, desde, hasta,
     } = await req.json();
 
     if (!blogId) return responder({ error: "Falta el blogId de la marca." }, 400);
@@ -139,6 +140,49 @@ Deno.serve(async (req) => {
       await metricool(`/v2/scheduler/posts/${encodeURIComponent(String(id))}`, blogId, { method: "DELETE" });
       return responder({ ok: true, borrada: id });
     }
+    // --- Videos grandes (más de 50 MB, como los de YouTube) ---
+    // No caben en Supabase Storage del plan gratis, y Metricool no lee el enlace de Drive.
+    // Se suben directo al almacenamiento de Metricool por partes, en tres pasos que la
+    // app va pidiendo uno a uno (cada llamada es corta y no choca con el límite de tiempo):
+    //   1. subida-iniciar: con el tamaño y el SHA-256 (base64) de cada parte, Metricool
+    //      devuelve un enlace firmado para subir cada una.
+    //   2. subida-parte: esta función baja ese pedazo de Drive y lo sube a su enlace.
+    //   3. subida-completar: Metricool junta las partes y devuelve el enlace del video.
+    if (accion === "subida-iniciar") {
+      if (!Array.isArray(partes) || !partes.length) return responder({ error: "Faltan las partes." }, 400);
+      const r = await metricool("/v2/media/s3/upload-transactions", blogId, {
+        method: "PUT",
+        body: JSON.stringify({ resourceType: "planner", contentType, fileExtension: "mp4", parts: partes }),
+      });
+      return responder({ ok: true, data: r?.data ?? r });
+    }
+    if (accion === "subida-parte") {
+      const origen = new URL(String(fuente ?? ""));
+      const destino = new URL(String(presignedUrl ?? ""));
+      if (origen.hostname !== "drive.usercontent.google.com") return responder({ error: "La fuente tiene que ser un archivo de Drive." }, 400);
+      if (!destino.hostname.endsWith(".amazonaws.com")) return responder({ error: "El destino no es el almacenamiento de Metricool." }, 400);
+      const d = await fetch(origen.toString(), { headers: { Range: `bytes=${inicio}-${Number(fin) - 1}` } });
+      if (d.status !== 206 && d.status !== 200) return responder({ error: `Drive respondió ${d.status}` }, 502);
+      const datos = new Uint8Array(await d.arrayBuffer());
+      if (datos.length !== Number(fin) - Number(inicio)) return responder({ error: `Drive mandó ${datos.length} bytes en vez de ${Number(fin) - Number(inicio)}` }, 502);
+      const firmados = (destino.searchParams.get("X-Amz-SignedHeaders") ?? "").toLowerCase();
+      const conHash = firmados.includes("checksum") || /checksum/i.test(destino.search);
+      const subida = await fetch(destino.toString(), {
+        method: "PUT",
+        body: datos,
+        headers: conHash && hash ? { "x-amz-checksum-sha256": String(hash) } : {},
+      });
+      if (!subida.ok) return responder({ error: `S3 ${subida.status}: ${(await subida.text()).slice(0, 300)}` }, 502);
+      return responder({ ok: true, etag: subida.headers.get("ETag") });
+    }
+    if (accion === "subida-completar") {
+      const r = await metricool("/v2/media/s3/upload-transactions", blogId, {
+        method: "PATCH",
+        body: JSON.stringify({ multipart: { uploadId, key, parts: partes } }),
+      });
+      return responder({ ok: true, data: r?.data ?? r });
+    }
+
     // Cómo quedó lo programado: por cada publicación, el estado en cada red
     // (PUBLISHED, PUBLISHING, PENDING, ERROR…), el enlace público y el detalle del error.
     // La app lo consulta sola para marcar como publicado o avisar si falló.
@@ -234,7 +278,7 @@ Deno.serve(async (req) => {
     for (const url of (videos as string[]).filter(Boolean)) {
       let fuente = url;
       try {
-        fuente = await copiarVideo(url);
+        if (!/metricool/i.test(new URL(url).hostname)) fuente = await copiarVideo(url);
       } catch (e) {
         console.log("copia del video falló →", String(e?.message ?? e).slice(0, 300));
       }
